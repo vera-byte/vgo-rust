@@ -1,0 +1,22 @@
+# 开发环境配置
+[server]
+debug = true
+port = 8080
+
+[logging]
+level = "debug"
+json_format = false
+
+[database]
+url = "sqlite://./dev.db"
+max_connections = 5
+
+[jwt]
+secret = "dev-secret-key-not-for-production"
+expiration = 7200
+
+[rate_limit]
+requests_per_minute = 1000
+
+[cors]
+allowed_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]

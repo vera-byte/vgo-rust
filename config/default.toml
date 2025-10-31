@@ -1,0 +1,30 @@
+# 默认配置文件
+[server]
+host = "127.0.0.1"
+port = 8080
+workers = 4
+debug = false
+
+[database]
+# url = "postgresql://user:password@localhost/vgo_rust"
+max_connections = 10
+
+[logging]
+level = "info"
+json_format = false
+
+[jwt]
+# secret = "your-secret-key-here"
+expiration = 3600
+
+[rate_limit]
+requests_per_minute = 60
+
+[cors]
+allowed_origins = ["*"]
+
+[redis]
+# url = "redis://localhost:6379"
+
+[cache]
+ttl_seconds = 300
