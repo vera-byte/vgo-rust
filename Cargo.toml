@@ -21,9 +21,6 @@ name = "test_config_sources"
 path = "test_config_sources.rs"
 
 
-
-
-
 [features]
 default = ["memory"]
 memory = []
@@ -48,7 +45,7 @@ serde_json = "1"
 
 # 异步编程
 async-trait = "0.1"
-futures-util = "0.3.31"  # 只使用需要的futures-util而不是整个futures
+futures-util = "0.3.31" # 只使用需要的futures-util而不是整个futures
 
 # 日志和追踪
 tracing = "0.1"
@@ -60,16 +57,32 @@ anyhow = "1.0.98"
 thiserror = "2.0.17"
 
 # 数据库相关
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "chrono", "uuid"] }
-diesel = { version = "2.0", features = ["postgres", "chrono"] }  # ORM框架
+sqlx = { version = "0.8", features = [
+    "runtime-tokio-rustls",
+    "postgres",
+    "chrono",
+    "uuid",
+] }
+diesel = { version = "2.0", features = ["postgres", "chrono"] } # ORM框架
 
 # 工具库
-regex = "1.10"                    # 正则表达式支持
-dirs = "6.0.0"                    # 跨平台目录路径获取
-config = "0.15.18"                # 配置管理
-lazy_static = "1.4"               # 静态变量
-chrono = { version = "0.4", features = ["serde"] }  # 时间处理
-clap = { version = "4.0", features = ["derive"] }   # 命令行参数解析
+regex = "1.10"                                     # 正则表达式支持
+dirs = "6.0.0"                                     # 跨平台目录路径获取
+config = "0.15.18"                                 # 配置管理
+lazy_static = "1.4"                                # 静态变量
+chrono = { version = "0.4", features = ["serde"] } # 时间处理
+clap = { version = "4.0", features = ["derive"] }  # 命令行参数解析
 urlencoding = "2.1"
 sys-info = "0.9"
-env_logger = "0.10"               # URL 编码/解码
+env_logger = "0.11.8"                              # URL 编码/解码
+
+# OpenAPI / Swagger 文档
+utoipa = { version = "5.4.0", features = ["macros"] }
+utoipa-swagger-ui = { version = "9.0.2", features = ["actix-web"] }
+
+[dev-dependencies]
+criterion = { version = "0.7.0", features = ["html_reports"] }
+
+[[bench]]
+name = "performance_benchmarks"
+harness = false

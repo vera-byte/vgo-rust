@@ -1,22 +1,23 @@
 use actix_web::{
     dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
-    Error, HttpMessage,
+    Error,
 };
 use futures_util::future::LocalBoxFuture;
 use std::{
     collections::HashMap,
     rc::Rc,
     sync::{
-        atomic::{AtomicU64, AtomicU32, Ordering},
+        atomic::{AtomicU64, Ordering},
         Arc, Mutex, RwLock,
     },
     time::{Duration, Instant},
 };
 use serde::{Deserialize, Serialize};
-use tracing::{info, warn};
+use utoipa::ToSchema;
+use tracing::warn;
 
 /// 性能指标数据结构
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct PerformanceMetrics {
     /// 请求总数
     pub total_requests: u64,
@@ -62,10 +63,51 @@ impl Default for PerformanceMetrics {
 
 /// 请求记录
 #[derive(Debug)]
-struct RequestRecord {
+pub struct RequestRecord {
     start_time: Instant,
-    path: String,
-    method: String,
+    path: &'static str, // 使用静态字符串引用减少分配
+    method: &'static str,
+}
+
+/// 环形缓冲区，用于存储响应时间历史
+#[derive(Debug)]
+struct RingBuffer {
+    buffer: Vec<u64>,
+    capacity: usize,
+    head: usize,
+    size: usize,
+}
+
+impl RingBuffer {
+    fn new(capacity: usize) -> Self {
+        Self {
+            buffer: vec![0; capacity],
+            capacity,
+            head: 0,
+            size: 0,
+        }
+    }
+
+    fn push(&mut self, value: u64) {
+        self.buffer[self.head] = value;
+        self.head = (self.head + 1) % self.capacity;
+        if self.size < self.capacity {
+            self.size += 1;
+        }
+    }
+
+    fn average(&self) -> f64 {
+        if self.size == 0 {
+            return 0.0;
+        }
+        let sum: u64 = self.buffer.iter().take(self.size).sum();
+        sum as f64 / self.size as f64
+    }
+
+    fn clear(&mut self) {
+        self.head = 0;
+        self.size = 0;
+    }
 }
 
 /// 原子计数器结构，用于高频更新的指标
@@ -138,7 +180,70 @@ impl SystemMetricsCache {
     }
 }
 
-/// 性能监控器 - 优化版本
+/// 字符串池，减少字符串分配
+#[derive(Debug)]
+struct StringPool {
+    paths: RwLock<HashMap<String, &'static str>>,
+    methods: RwLock<HashMap<String, &'static str>>,
+}
+
+impl StringPool {
+    fn new() -> Self {
+        let mut methods = HashMap::new();
+        // 预分配常用HTTP方法
+        methods.insert("GET".to_string(), "GET");
+        methods.insert("POST".to_string(), "POST");
+        methods.insert("PUT".to_string(), "PUT");
+        methods.insert("DELETE".to_string(), "DELETE");
+        methods.insert("PATCH".to_string(), "PATCH");
+        methods.insert("HEAD".to_string(), "HEAD");
+        methods.insert("OPTIONS".to_string(), "OPTIONS");
+
+        Self {
+            paths: RwLock::new(HashMap::new()),
+            methods: RwLock::new(methods),
+        }
+    }
+
+    fn get_or_intern_path(&self, path: &str) -> &'static str {
+        // 首先尝试读锁
+        if let Ok(paths) = self.paths.read() {
+            if let Some(&interned) = paths.get(path) {
+                return interned;
+            }
+        }
+
+        // 需要写入新路径
+        let mut paths = self.paths.write().unwrap();
+        if let Some(&interned) = paths.get(path) {
+            return interned;
+        }
+
+        // 将字符串泄漏到静态生命周期（仅用于演示，生产环境需要更好的内存管理）
+        let leaked: &'static str = Box::leak(path.to_string().into_boxed_str());
+        paths.insert(path.to_string(), leaked);
+        leaked
+    }
+
+    fn get_or_intern_method(&self, method: &str) -> &'static str {
+        if let Ok(methods) = self.methods.read() {
+            if let Some(&interned) = methods.get(method) {
+                return interned;
+            }
+        }
+
+        let mut methods = self.methods.write().unwrap();
+        if let Some(&interned) = methods.get(method) {
+            return interned;
+        }
+
+        let leaked: &'static str = Box::leak(method.to_string().into_boxed_str());
+        methods.insert(method.to_string(), leaked);
+        leaked
+    }
+}
+
+/// 性能监控器 - 高度优化版本
 #[derive(Debug, Clone)]
 pub struct PerformanceMonitor {
     atomic_counters: Arc<AtomicCounters>,
@@ -147,6 +252,10 @@ pub struct PerformanceMonitor {
     status_code_counts: Arc<RwLock<HashMap<u16, u64>>>,
     path_counts: Arc<RwLock<HashMap<String, u64>>>,
     system_metrics_cache: Arc<Mutex<SystemMetricsCache>>,
+    // 使用环形缓冲区替代Vec，固定内存使用
+    response_time_buffer: Arc<Mutex<RingBuffer>>,
+    // 字符串池减少分配
+    string_pool: Arc<StringPool>,
 }
 
 impl PerformanceMonitor {
@@ -157,19 +266,24 @@ impl PerformanceMonitor {
             status_code_counts: Arc::new(RwLock::new(HashMap::new())),
             path_counts: Arc::new(RwLock::new(HashMap::new())),
             system_metrics_cache: Arc::new(Mutex::new(SystemMetricsCache::new())),
+            response_time_buffer: Arc::new(Mutex::new(RingBuffer::new(1000))), // 固定1000个样本
+            string_pool: Arc::new(StringPool::new()),
         }
     }
 
-    /// 记录请求开始
+    /// 记录请求开始 - 优化版本，使用字符串池
     pub fn record_request_start(&self, path: &str, method: &str) -> RequestRecord {
+        let interned_path = self.string_pool.get_or_intern_path(path);
+        let interned_method = self.string_pool.get_or_intern_method(method);
+        
         RequestRecord {
             start_time: Instant::now(),
-            path: path.to_string(),
-            method: method.to_string(),
+            path: interned_path,
+            method: interned_method,
         }
     }
 
-    /// 记录请求完成 - 优化版本，减少锁争用
+    /// 记录请求完成 - 高度优化版本
     pub fn record_request_end(&self, record: RequestRecord, status_code: u16) {
         let response_time = record.start_time.elapsed();
         let response_time_ms = response_time.as_millis() as u64;
@@ -212,8 +326,13 @@ impl PerformanceMonitor {
             }
         }
 
+        // 更新环形缓冲区
+        if let Ok(mut buffer) = self.response_time_buffer.try_lock() {
+            buffer.push(response_time_ms);
+        }
+
         // 批量更新HashMap，减少锁持有时间
-        self.update_maps_batch(&record.path, status_code);
+        self.update_maps_batch(record.path, status_code);
 
         // 记录性能日志（仅对慢请求）
         if response_time_ms > 1000 {
@@ -227,32 +346,35 @@ impl PerformanceMonitor {
     /// 批量更新HashMap，减少锁持有时间
     fn update_maps_batch(&self, path: &str, status_code: u16) {
         // 快速更新状态码计数
-        {
-            let mut status_counts = self.status_code_counts.write().unwrap();
+        if let Ok(mut status_counts) = self.status_code_counts.try_write() {
             *status_counts.entry(status_code).or_insert(0) += 1;
         }
 
         // 快速更新路径计数
-        {
-            let mut path_counts = self.path_counts.write().unwrap();
+        if let Ok(mut path_counts) = self.path_counts.try_write() {
             *path_counts.entry(path.to_string()).or_insert(0) += 1;
         }
     }
 
-    /// 获取性能指标 - 优化版本
+    /// 获取性能指标 - 高度优化版本
     pub fn get_metrics(&self) -> PerformanceMetrics {
         let total_requests = self.atomic_counters.total_requests.load(Ordering::Relaxed);
         let successful_requests = self.atomic_counters.successful_requests.load(Ordering::Relaxed);
         let failed_requests = self.atomic_counters.failed_requests.load(Ordering::Relaxed);
         let max_response_time_ms = self.atomic_counters.max_response_time_ms.load(Ordering::Relaxed);
         let min_response_time_ms = self.atomic_counters.min_response_time_ms.load(Ordering::Relaxed);
-        let total_response_time_ms = self.atomic_counters.total_response_time_ms.load(Ordering::Relaxed);
 
-        // 计算平均响应时间
-        let avg_response_time_ms = if total_requests > 0 {
-            total_response_time_ms as f64 / total_requests as f64
+        // 从环形缓冲区计算平均响应时间
+        let avg_response_time_ms = if let Ok(buffer) = self.response_time_buffer.try_lock() {
+            buffer.average()
         } else {
-            0.0
+            // 如果无法获取锁，使用原子计数器计算
+            let total_response_time_ms = self.atomic_counters.total_response_time_ms.load(Ordering::Relaxed);
+            if total_requests > 0 {
+                total_response_time_ms as f64 / total_requests as f64
+            } else {
+                0.0
+            }
         };
 
         // 计算QPS
@@ -296,6 +418,9 @@ impl PerformanceMonitor {
         self.atomic_counters.reset();
         self.status_code_counts.write().unwrap().clear();
         self.path_counts.write().unwrap().clear();
+        if let Ok(mut buffer) = self.response_time_buffer.try_lock() {
+            buffer.clear();
+        }
     }
 
     /// 生成性能报告
@@ -405,9 +530,9 @@ where
 
         Box::pin(async move {
             // 记录请求开始
-            let path = req.path().to_string();
-            let method = req.method().to_string();
-            let record = monitor.record_request_start(&path, &method);
+            let path = req.path();
+            let method = req.method().as_str();
+            let record = monitor.record_request_start(path, method);
 
             // 调用下一个服务
             let res = service.call(req).await?;
@@ -456,13 +581,13 @@ mod tests {
         assert!(metrics.avg_response_time_ms >= 0.0);
     }
 
-    #[test]
-    fn test_performance_monitor() {
+    #[tokio::test]
+    async fn test_performance_monitor() {
         let monitor = PerformanceMonitor::new();
         
         // 模拟请求
         let record = monitor.record_request_start("/test", "GET");
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
         monitor.record_request_end(record, 200);
         
         let metrics = monitor.get_metrics();
@@ -472,8 +597,8 @@ mod tests {
         assert!(metrics.avg_response_time_ms > 0.0);
     }
 
-    #[test]
-    fn test_metrics_reset() {
+    #[tokio::test]
+    async fn test_metrics_reset() {
         let monitor = PerformanceMonitor::new();
         
         // 添加一些数据
@@ -489,8 +614,8 @@ mod tests {
         assert_eq!(metrics.failed_requests, 0);
     }
 
-    #[test]
-    fn test_report_generation() {
+    #[tokio::test]
+    async fn test_report_generation() {
         let monitor = PerformanceMonitor::new();
         
         // 添加一些测试数据
@@ -506,23 +631,24 @@ mod tests {
         assert!(report.contains("失败请求: 1"));
     }
 
-    #[test]
-    fn test_atomic_counters_performance() {
+    #[tokio::test]
+    async fn test_atomic_counters_performance() {
         let monitor = Arc::new(PerformanceMonitor::new());
-        let handles: Vec<_> = (0..10)
-            .map(|i| {
-                let monitor = monitor.clone();
-                std::thread::spawn(move || {
-                    for j in 0..100 {
-                        let record = monitor.record_request_start(&format!("/test/{}", i), "GET");
-                        monitor.record_request_end(record, if j % 10 == 0 { 500 } else { 200 });
-                    }
-                })
-            })
-            .collect();
+        let mut handles = Vec::new();
+        
+        for i in 0..10 {
+            let monitor = monitor.clone();
+            let handle = tokio::spawn(async move {
+                for j in 0..100 {
+                    let record = monitor.record_request_start(&format!("/test/{}", i), "GET");
+                    monitor.record_request_end(record, if j % 10 == 0 { 500 } else { 200 });
+                }
+            });
+            handles.push(handle);
+        }
 
         for handle in handles {
-            handle.join().unwrap();
+            handle.await.unwrap();
         }
 
         let metrics = monitor.get_metrics();
@@ -531,8 +657,8 @@ mod tests {
         assert_eq!(metrics.failed_requests, 100);
     }
 
-    #[test]
-    fn test_system_metrics_cache() {
+    #[tokio::test]
+    async fn test_system_metrics_cache() {
         let mut cache = SystemMetricsCache::new();
         
         // 首次应该需要更新

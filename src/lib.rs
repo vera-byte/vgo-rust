@@ -1,15 +1,14 @@
-pub mod auth;
-pub mod error;
-pub mod middleware;
 pub mod api;
 #[path = "bootstrap/app_bootstrap.rs"]
 pub mod app_bootstrap;
+pub mod comm;
 #[path = "bootstrap/command_registry.rs"]
 pub mod command_registry;
+pub mod conf;
+pub mod error;
+pub mod middleware;
 #[path = "bootstrap/route_registry.rs"]
 pub mod route_registry;
-pub mod comm;
-pub mod conf;
 pub mod stp_util_demo;
 
 // Modules

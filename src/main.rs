@@ -1,13 +1,13 @@
 use clap::ArgMatches;
 use std::error::Error;
 
-mod auth;
-mod error;
-mod middleware;
+mod api;
 #[path = "bootstrap/app_bootstrap.rs"]
 mod app_bootstrap;
 #[path = "bootstrap/command_registry.rs"]
 mod command_registry;
+mod error;
+mod middleware;
 #[path = "bootstrap/route_registry.rs"]
 mod route_registry;
 mod cmd {
@@ -19,9 +19,9 @@ mod comm;
 mod conf;
 mod schema;
 
-
 // Modules
 mod modules;
+use crate::route_registry::{register_global_route, RouteInfo};
 
 /// 初始化所有模块的命令
 fn init_commands() {
@@ -39,12 +39,20 @@ fn init_routes() {
 
     // 这里可以添加其他模块的路由注册
     // modules::space::register_space_routes();
+
+    // 注册系统性能监控与健康检查路由（直接调用注册函数以避免宏路径问题）
+    register_global_route(RouteInfo {
+        name: "metrics_api".to_string(),
+        description: "性能指标与健康检查接口".to_string(),
+        module: "system".to_string(),
+        config_fn: crate::api::metrics::configure_metrics_routes,
+    });
 }
 
-use comm::enhanced_config::EnhancedConfigManager;
 use app_bootstrap::{AppBootstrap, AppConfig};
-use command_registry::{build_app, handle_command};
 use cmd::handle_version_command;
+use comm::enhanced_config::EnhancedConfigManager;
+use command_registry::{build_app, handle_command};
 
 #[actix_web::main]
 async fn main() -> Result<(), Box<dyn Error>> {
