@@ -1,88 +1,48 @@
 [package]
-name = "vgo-rust"
+name = "vgo-workspace"
 version = "0.1.0"
 edition = "2021"
 publish = false
 
-[lib]
-name = "vgo_rust"
-path = "src/lib.rs"
+[workspace]
+members = ["v", "v-auth-center", "v-macros"]
 
-[[bin]]
-name = "vgo-rust"
-path = "src/main.rs"
+resolver = "2"
 
-[[bin]]
-name = "test_config"
-path = "test_config.rs"
+[[example]]
+name = "config_example"
+path = "examples/config_example.rs"
 
-[[bin]]
-name = "test_config_sources"
-path = "test_config_sources.rs"
+[[example]]
+name = "db_sqlite"
+path = "examples/db/sqlite/main.rs"
 
+[[example]]
+name = "db_mysql"
+path = "examples/db/mysql/main.rs"
 
-[features]
-default = ["memory"]
-memory = []
-redis = ["sa-token-storage-redis"]
-sa-token-metadata = []             # 添加这个feature来抑制警告
+[[example]]
+name = "db_postgresql"
+path = "examples/db/postgresql/main.rs"
 
 
 [dependencies]
-# Web框架
-actix-web = "4.11.0"
+anyhow = "1"
 tokio = { version = "1", features = ["full"] }
-
-# Sa-Token认证框架
-sa-token-core = "0.1.4"
-sa-token-storage-redis = { version = "0.1.4", optional = true }
-sa-token-storage-memory = "0.1.4"
-sa-token-plugin-actix-web = "0.1.4"
-
-# 序列化和反序列化
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-
-# 异步编程
-async-trait = "0.1"
-futures-util = "0.3.31" # 只使用需要的futures-util而不是整个futures
-
-# 日志和追踪
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["registry", "env-filter"] }
-tracing-bunyan-formatter = "0.3"
-
-# 错误处理
-anyhow = "1.0.98"
-thiserror = "2.0.17"
-
-# 数据库相关
-sqlx = { version = "0.8", features = [
+v = { path = "./v" }
+v-macros = { path = "./v-macros" }
+sqlx = { version = "0.8.6", features = [
     "runtime-tokio-rustls",
+    "sqlite",
+    "mysql",
     "postgres",
+    "macros",
+    "any",
     "chrono",
     "uuid",
+    "json",
 ] }
-diesel = { version = "2.0", features = ["postgres", "chrono"] } # ORM框架
-
-# 工具库
-regex = "1.10"                                     # 正则表达式支持
-dirs = "6.0.0"                                     # 跨平台目录路径获取
-config = "0.15.18"                                 # 配置管理
-lazy_static = "1.4"                                # 静态变量
-chrono = { version = "0.4", features = ["serde"] } # 时间处理
-clap = { version = "4.0", features = ["derive"] }  # 命令行参数解析
-urlencoding = "2.1"
-sys-info = "0.9"
-env_logger = "0.11.8"                              # URL 编码/解码
-
-# OpenAPI / Swagger 文档
-utoipa = { version = "5.4.0", features = ["macros"] }
-utoipa-swagger-ui = { version = "9.0.2", features = ["actix-web"] }
-
-[dev-dependencies]
-criterion = { version = "0.7.0", features = ["html_reports"] }
-
-[[bench]]
-name = "performance_benchmarks"
-harness = false
+serde = { version = "1", features = ["derive"] }
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+serde_json = "1"

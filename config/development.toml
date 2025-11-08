@@ -20,3 +20,6 @@ requests_per_minute = 1000
 
 [cors]
 allowed_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
+
+[redis]
+url = "redis://:123456@10.0.0.200:6379/0"

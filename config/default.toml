@@ -9,6 +9,29 @@ debug = false
 # url = "postgresql://user:password@localhost/vgo_rust"
 max_connections = 10
 
+# 多数据库分组示例：default 与 mloss_oil
+[database.default]
+type = "postgresql"
+host = "127.0.0.1"
+port = "5432"
+user = "vgo_rust_master"
+pass = "wRJksJcYWsRBbhHw"
+name = "vgo_rust_master"
+charset = "utf8mb4"
+timezone = "Asia/Shanghai"
+maxOpen = 100
+
+[database.test]
+type = "postgresql"
+host = "127.0.0.1"
+port = "5432"
+user = "vgo_rust_master"
+pass = "wRJksJcYWsRBbhHw"
+name = "vgo_rust_master"
+charset = "utf8mb4"
+timezone = "Asia/Shanghai"
+maxOpen = 100
+
 [logging]
 level = "info"
 json_format = false
@@ -23,8 +46,6 @@ requests_per_minute = 60
 [cors]
 allowed_origins = ["*"]
 
-[redis]
-# url = "redis://localhost:6379"
 
 [cache]
 ttl_seconds = 300

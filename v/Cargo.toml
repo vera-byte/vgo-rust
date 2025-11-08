@@ -1,0 +1,42 @@
+[package]
+name = "v"
+version = "0.1.0"
+edition = "2021"
+
+
+[features]
+default = ["config"]
+config = [
+    "dep:thiserror",
+    "dep:config",
+    "dep:lazy_static",
+    "dep:serde",
+    "dep:serde_json",
+]
+
+[dependencies]
+sqlx = { version = "0.8.6", features = [
+    "runtime-tokio-rustls",
+    "mysql",
+    "postgres",
+    "sqlite",
+    "macros",
+    "chrono",
+    "any",
+] }
+# 以 feature 形式可选启用配置模块所需依赖（通过 dep: 前缀引用）
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+thiserror = { version = "2", optional = true }
+config = { version = "0.15.18", optional = true }
+lazy_static = { version = "1.4", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+chrono = { version = "0.4", features = ["serde"] }
+urlencoding = "2"
+async-trait = "0.1"
+syn = { version = "2", features = ["full"] }
+quote = "1"
+v-macros = { path = "../v-macros" }
+
+[dev-dependencies]

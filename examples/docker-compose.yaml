@@ -1,0 +1,18 @@
+## Docker Compose V2: omit obsolete version key
+
+services:
+  postgres:
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/postgres:18-linuxarm64 # Alpine Linux 镜像，兼容 ARM，体积小
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: vgo_rust_master # 初始数据库名
+      POSTGRES_USER: vgo_rust_master # 数据库用户
+      POSTGRES_PASSWORD: wRJksJcYWsRBbhHw # 数据库密码，生产环境建议使用强密码
+    volumes:
+      - postgres_data:/var/lib/postgresql/data # 数据持久化卷
+      - ./init-scripts:/docker-entrypoint-initdb.d # 初始化 SQL 脚本目录
+    ports:
+      - "5432:5432" # 主机端口:容器端口
+
+volumes:
+  postgres_data: # 命名卷，便于数据管理
