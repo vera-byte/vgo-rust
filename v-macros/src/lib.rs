@@ -55,6 +55,14 @@ pub fn base_model(_args: TokenStream, input: TokenStream) -> TokenStream {
             pub id: i64,
         });
     }
+    if !existing.contains("tenantId") {
+        extra_fields.push(quote! {
+            #[doc = "租户标识"]
+            #[sqlx(rename = "tenant_id")]
+            pub tenantId: i64,
+        });
+    }
+
     if !existing.contains("created_at") {
         extra_fields.push(quote! {
             #[doc = "创建时间戳"]
@@ -82,7 +90,7 @@ pub fn base_model(_args: TokenStream, input: TokenStream) -> TokenStream {
 
     let expanded = quote! {
         #(#_filtered_attrs)*
-        #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+        #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, sqlx::FromRow)]
         #vis struct #ident #ty_generics #where_clause {
             #(#orig_fields,)*
             #(#extra_fields)*
@@ -186,10 +194,9 @@ pub fn model(args: TokenStream, input: TokenStream) -> TokenStream {
                 TokenStream::from(quote! { #item_tokens #impl_tokens #trait_impl_tokens })
             }
             Err(e) => {
-                syn::Error::new_spanned(
-                    &ident,
-                    format!("#[model] trait_path 解析失败: {}", e)
-                ).to_compile_error().into()
+                syn::Error::new_spanned(&ident, format!("#[model] trait_path 解析失败: {}", e))
+                    .to_compile_error()
+                    .into()
             }
         }
     } else {
