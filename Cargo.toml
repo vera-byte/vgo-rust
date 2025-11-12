@@ -1,11 +1,7 @@
-[package]
-name = "vgo-workspace"
-version = "0.1.0"
-edition = "2021"
-publish = false
+
 
 [workspace]
-members = ["v", "v-auth-center", "v-macros"]
+members = ["v", "v-auth-center"]
 
 resolver = "2"
 
@@ -26,22 +22,21 @@ name = "db_postgresql"
 path = "examples/db/postgresql/main.rs"
 
 
+[features]
+default = ["sqlite_backend", "postgres_backend"]
+sqlite_backend = ["diesel/sqlite"]
+postgres_backend = ["diesel/postgres"]
+mysql_backend = ["diesel/mysql"]
+
 [dependencies]
 anyhow = "1"
 tokio = { version = "1", features = ["full"] }
 v = { path = "./v" }
-v-macros = { path = "./v-macros" }
-sqlx = { version = "0.8.6", features = [
-    "runtime-tokio-rustls",
-    "sqlite",
-    "mysql",
-    "postgres",
-    "macros",
-    "any",
+diesel = { version = "2.1", default-features = false, features = [
+    "r2d2",
     "chrono",
-    "uuid",
-    "json",
 ] }
+dotenvy = "0.15"
 serde = { version = "1", features = ["derive"] }
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
