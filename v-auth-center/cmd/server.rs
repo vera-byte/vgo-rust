@@ -4,8 +4,7 @@ use actix_web::middleware::Logger;
 use sa_token_core::SaTokenConfig;
 use sa_token_storage_memory::MemoryStorage;
 use std::sync::Arc;
-
-mod event { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/event/mod.rs")); }
+use v_auth_center::event::MyListener;
 mod controller_registry { include!(concat!(env!("OUT_DIR"), "/controller_registry.rs")); }
 
 #[tokio::main]
@@ -25,7 +24,7 @@ async fn main() -> Result<()> {
         .timeout(timeout_seconds)
         .token_name(token_name);
 
-    builder = builder.register_listener(Arc::new(event::MyListener));
+    builder = builder.register_listener(Arc::new(MyListener));
     builder.build();
 
     let server = HttpServer::new(move || {

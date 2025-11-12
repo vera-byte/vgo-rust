@@ -26,3 +26,7 @@ sa-token-plugin-actix-web = "0.1.5"
 [[bin]]
 name = "server"
 path = "cmd/server.rs"
+
+[lib]
+name = "v_auth_center"
+path = "src/lib.rs"

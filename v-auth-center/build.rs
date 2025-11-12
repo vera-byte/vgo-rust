@@ -1,3 +1,4 @@
+use std::collections::{BTreeMap, HashMap};
 use std::env;
 use std::fs;
 use std::io::Write;
@@ -16,11 +17,11 @@ fn main() {
     }
 
     let mut code = String::new();
+    code.push_str("// 自动生成的路由注册代码 / Auto-generated route registry\n");
     code.push_str("pub fn configure(cfg: &mut actix_web::web::ServiceConfig) {\n");
     code.push_str("    async fn __stub() -> impl actix_web::Responder { actix_web::HttpResponse::NotImplemented().finish() }\n");
 
     for (route, path, has_register) in entries.iter() {
-        let module_name = sanitize_module_name(path);
         let abs = Path::new(&manifest_dir)
             .join("src")
             .join("controller")
@@ -30,11 +31,11 @@ fn main() {
             "cargo:rerun-if-changed=src/controller/{}",
             escape_path(&path)
         );
-        code.push_str(&format!("    pub mod {} {{ include!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/src/controller/{}\")); }}\n", module_name, escape_path(&path)));
+        let module_path = to_module_path(path);
         if *has_register {
             code.push_str(&format!(
                 "    {}::register(cfg, \"{}\");\n",
-                module_name, route
+                module_path, route
             ));
         } else {
             code.push_str(&format!(
@@ -53,6 +54,38 @@ fn main() {
     let out_path = Path::new(&out_dir).join("controller_registry.rs");
     let mut f = fs::File::create(out_path).unwrap();
     f.write_all(code.as_bytes()).unwrap();
+
+    // 生成模块树 / Generate module tree
+    let mut dirs: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
+    let mut files: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
+    for (_, rel, _) in entries.iter() {
+        let parent = rel.parent().unwrap_or(Path::new(""));
+        dirs.entry(parent.to_path_buf()).or_default();
+        files
+            .entry(parent.to_path_buf())
+            .or_default()
+            .push(rel.clone());
+        // 注册所有父目录
+        let mut cur = parent.to_path_buf();
+        while let Some(p) = cur.parent() {
+            dirs.entry(cur.clone()).or_default();
+            cur = p.to_path_buf();
+            if cur.as_os_str().is_empty() {
+                break;
+            }
+        }
+        dirs.entry(PathBuf::new()).or_default();
+    }
+
+    let mut mod_code = String::new();
+    mod_code.push_str("// 自动生成的控制器模块树 / Auto-generated controller module tree\n");
+    mod_code.push_str("pub mod controller {\n");
+    emit_dir(&mut mod_code, &PathBuf::new(), &dirs, &files);
+    mod_code.push_str("}\n");
+
+    let mod_out = Path::new(&out_dir).join("auto_mod.rs");
+    let mut mf = fs::File::create(mod_out).unwrap();
+    mf.write_all(mod_code.as_bytes()).unwrap();
 }
 
 fn collect_controllers(root: &Path, base: &Path, entries: &mut Vec<(String, PathBuf, bool)>) {
@@ -137,4 +170,52 @@ fn sanitize_module_name(p: &PathBuf) -> String {
 
 fn escape_path(p: &PathBuf) -> String {
     p.to_string_lossy().replace("\\", "/")
+}
+
+fn emit_dir(
+    out: &mut String,
+    dir: &PathBuf,
+    dirs: &BTreeMap<PathBuf, Vec<PathBuf>>,
+    files: &BTreeMap<PathBuf, Vec<PathBuf>>,
+) {
+    // 子目录 / child directories
+    let mut children_dirs: Vec<PathBuf> = Vec::new();
+    for k in dirs.keys() {
+        if k.parent() == Some(dir.as_path()) {
+            children_dirs.push(k.clone());
+        }
+    }
+    // 子文件 / child files
+    let mut children_files = files.get(dir).cloned().unwrap_or_default();
+    children_dirs.sort();
+    children_files.sort();
+
+    for d in children_dirs {
+        if let Some(name) = d.file_name().and_then(|s| s.to_str()) {
+            out.push_str(&format!("    pub mod {} {{\n", name));
+            emit_dir(out, &d, dirs, files);
+            out.push_str("    }\n");
+        }
+    }
+
+    for f in children_files {
+        if let Some(stem) = f.file_stem().and_then(|s| s.to_str()) {
+            let p = format!("/src/controller/{}", escape_path(&f));
+            out.push_str(&format!(
+                "    pub mod {} {{ include!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"{}\")); }}\n",
+                stem, p
+            ));
+        }
+    }
+}
+
+fn to_module_path(p: &PathBuf) -> String {
+    let mut parts: Vec<String> = vec!["v_auth_center".to_string(), "controller".to_string()];
+    for c in p.components() {
+        if let std::path::Component::Normal(os) = c {
+            let s = os.to_string_lossy().replace(".rs", "");
+            parts.push(s);
+        }
+    }
+    parts.join("::")
 }
