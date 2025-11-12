@@ -1,0 +1,42 @@
+[package]
+name = "vgo-examples"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[example]]
+name = "config_example"
+path = "config_example.rs"
+
+[[example]]
+name = "db_sqlite"
+path = "db/sqlite/main.rs"
+
+[[example]]
+name = "db_mysql"
+path = "db/mysql/main.rs"
+
+[[example]]
+name = "db_postgresql"
+path = "db/postgresql/main.rs"
+
+[features]
+default = ["sqlite_backend", "postgres_backend"]
+sqlite_backend = ["diesel/sqlite"]
+postgres_backend = ["diesel/postgres"]
+mysql_backend = ["diesel/mysql"]
+
+[dependencies]
+anyhow = "1"
+tokio = { version = "1", features = ["full"] }
+v = { path = "../v" }
+diesel = { version = "2.1", default-features = false, features = [
+    "r2d2",
+    "chrono",
+] }
+dotenvy = "0.15"
+serde = { version = "1", features = ["derive"] }
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+serde_json = "1"
+

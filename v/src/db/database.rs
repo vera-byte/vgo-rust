@@ -4,25 +4,37 @@ use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 use tokio::sync::RwLock;
 
-use diesel::prelude::*;
-use diesel::r2d2::{self, ConnectionManager, Pool, PooledConnection};
 #[cfg(feature = "mysql_backend")]
 use diesel::mysql::MysqlConnection;
-use diesel::{pg::PgConnection, sqlite::SqliteConnection};
+#[cfg(feature = "postgres_backend")]
+use diesel::pg::PgConnection;
+use diesel::prelude::*;
+use diesel::r2d2::{self, ConnectionManager, Pool, PooledConnection};
+#[cfg(feature = "sqlite_backend")]
+use diesel::sqlite::SqliteConnection;
 
 use crate::comm::config::get_global_config_manager;
 
 lazy_static! {
-    /// PostgreSQL 连接池缓存，按 group_name 管理
-    static ref POSTGRES_POOLS: RwLock<HashMap<String, Pool<ConnectionManager<PgConnection>>>> = RwLock::new(HashMap::new());
-    /// SQLite 连接池缓存
-    static ref SQLITE_POOLS: RwLock<HashMap<String, Pool<ConnectionManager<SqliteConnection>>>> = RwLock::new(HashMap::new());
     /// 动态类型连接池缓存
     static ref ANY_POOLS: RwLock<HashMap<String, DbPool>> = RwLock::new(HashMap::new());
 
     /// 已经启动健康检查的 group 记录（避免重复）
     static ref HEALTH_GROUPS: RwLock<HashSet<String>> = RwLock::new(HashSet::new());
 }
+
+#[cfg(feature = "postgres_backend")]
+lazy_static! {
+    /// PostgreSQL 连接池缓存，按 group_name 管理
+    static ref POSTGRES_POOLS: RwLock<HashMap<String, Pool<ConnectionManager<PgConnection>>>> = RwLock::new(HashMap::new());
+}
+
+#[cfg(feature = "sqlite_backend")]
+lazy_static! {
+    /// SQLite 连接池缓存
+    static ref SQLITE_POOLS: RwLock<HashMap<String, Pool<ConnectionManager<SqliteConnection>>>> = RwLock::new(HashMap::new());
+}
+
 #[cfg(feature = "mysql_backend")]
 lazy_static! {
     /// MySQL 连接池缓存（可选）
@@ -32,9 +44,11 @@ lazy_static! {
 /// Diesel 动态连接池封装
 #[derive(Clone)]
 pub enum DbPool {
+    #[cfg(feature = "postgres_backend")]
     Postgres(Pool<ConnectionManager<PgConnection>>),
     #[cfg(feature = "mysql_backend")]
     Mysql(Pool<ConnectionManager<MysqlConnection>>),
+    #[cfg(feature = "sqlite_backend")]
     Sqlite(Pool<ConnectionManager<SqliteConnection>>),
 }
 
@@ -125,11 +139,14 @@ impl DatabaseManager {
         };
 
         let pool = match typ.as_str() {
+            #[cfg(feature = "postgres_backend")]
             "postgresql" | "postgres" => {
                 let manager = ConnectionManager::<PgConnection>::new(url);
                 let builder = r2d2::Pool::builder().max_size(max_open);
                 DbPool::Postgres(builder.build(manager).map_err(|e| anyhow!(e))?)
             }
+            #[cfg(not(feature = "postgres_backend"))]
+            "postgresql" | "postgres" => return Err(anyhow!("未启用 postgres_backend feature")),
             #[cfg(feature = "mysql_backend")]
             "mysql" => {
                 let manager = ConnectionManager::<MysqlConnection>::new(url);
@@ -138,12 +155,15 @@ impl DatabaseManager {
             }
             #[cfg(not(feature = "mysql_backend"))]
             "mysql" => return Err(anyhow!("未启用 mysql_backend feature")),
+            #[cfg(feature = "sqlite_backend")]
             "sqlite" => {
                 let manager = ConnectionManager::<SqliteConnection>::new(url);
                 let builder = r2d2::Pool::builder().max_size(max_open);
                 DbPool::Sqlite(builder.build(manager).map_err(|e| anyhow!(e))?)
             }
-            _ => unreachable!(),
+            #[cfg(not(feature = "sqlite_backend"))]
+            "sqlite" => return Err(anyhow!("未启用 sqlite_backend feature")),
+            _ => return Err(anyhow!("不支持的数据库类型: {}", typ)),
         };
 
         println!(
@@ -279,6 +299,7 @@ impl DatabaseManager {
 
     // 已移除的按组获取 SQLite 连接池片段，统一使用 AnyPool 接口。
 
+    #[cfg(feature = "sqlite_backend")]
     async fn build_sqlite_pool(group: &str) -> Result<Pool<ConnectionManager<SqliteConnection>>> {
         let mgr = get_global_config_manager()?;
         let typ: String = mgr.get_or(&format!("database.{}.type", group), "sqlite".to_string());
@@ -320,45 +341,63 @@ impl DatabaseManager {
     }
 
     /// 轻量健康检查：执行 `SELECT 1`，失败返回错误
+    #[cfg(feature = "postgres_backend")]
     pub async fn check_postgres_health(pool: &Pool<ConnectionManager<PgConnection>>) -> Result<()> {
         let pool = pool.clone();
         tokio::task::spawn_blocking(move || {
-            let mut conn: PooledConnection<ConnectionManager<PgConnection>> = pool.get().map_err(|e| anyhow!(e))?;
+            let mut conn: PooledConnection<ConnectionManager<PgConnection>> = pool
+                .get()
+                .map_err(|e: diesel::r2d2::PoolError| anyhow!(e))?;
             diesel::sql_query("SELECT 1")
                 .execute(&mut conn)
                 .map(|_| ())
                 .map_err(|e| anyhow!("postgres health check failed: {}", e))
-        }).await.map_err(|e| anyhow!("join error: {}", e))?
+        })
+        .await
+        .map_err(|e| anyhow!("join error: {}", e))?
     }
 
     #[cfg(feature = "mysql_backend")]
     pub async fn check_mysql_health(pool: &Pool<ConnectionManager<MysqlConnection>>) -> Result<()> {
         let pool = pool.clone();
         tokio::task::spawn_blocking(move || {
-            let mut conn: PooledConnection<ConnectionManager<MysqlConnection>> = pool.get().map_err(|e| anyhow!(e))?;
+            let mut conn: PooledConnection<ConnectionManager<MysqlConnection>> = pool
+                .get()
+                .map_err(|e: diesel::r2d2::PoolError| anyhow!(e))?;
             diesel::sql_query("SELECT 1")
                 .execute(&mut conn)
                 .map(|_| ())
                 .map_err(|e| anyhow!("mysql health check failed: {}", e))
-        }).await.map_err(|e| anyhow!("join error: {}", e))?
+        })
+        .await
+        .map_err(|e| anyhow!("join error: {}", e))?
     }
 
-    pub async fn check_sqlite_health(pool: &Pool<ConnectionManager<SqliteConnection>>) -> Result<()> {
+    #[cfg(feature = "sqlite_backend")]
+    pub async fn check_sqlite_health(
+        pool: &Pool<ConnectionManager<SqliteConnection>>,
+    ) -> Result<()> {
         let pool = pool.clone();
         tokio::task::spawn_blocking(move || {
-            let mut conn: PooledConnection<ConnectionManager<SqliteConnection>> = pool.get().map_err(|e| anyhow!(e))?;
+            let mut conn: PooledConnection<ConnectionManager<SqliteConnection>> = pool
+                .get()
+                .map_err(|e: diesel::r2d2::PoolError| anyhow!(e))?;
             diesel::sql_query("SELECT 1")
                 .execute(&mut conn)
                 .map(|_| ())
                 .map_err(|e| anyhow!("sqlite health check failed: {}", e))
-        }).await.map_err(|e| anyhow!("join error: {}", e))?
+        })
+        .await
+        .map_err(|e| anyhow!("join error: {}", e))?
     }
 
     pub async fn check_any_health(pool: &DbPool) -> Result<()> {
         match pool {
+            #[cfg(feature = "postgres_backend")]
             DbPool::Postgres(p) => Self::check_postgres_health(p).await,
             #[cfg(feature = "mysql_backend")]
             DbPool::Mysql(p) => Self::check_mysql_health(p).await,
+            #[cfg(feature = "sqlite_backend")]
             DbPool::Sqlite(p) => Self::check_sqlite_health(p).await,
         }
     }
@@ -374,6 +413,7 @@ impl DatabaseManager {
             .to_lowercase();
 
         match typ.as_str() {
+            #[cfg(feature = "postgres_backend")]
             "postgresql" | "postgres" => {
                 let pool = {
                     let r = POSTGRES_POOLS.read().await;
@@ -396,6 +436,8 @@ impl DatabaseManager {
                 }
                 Ok(())
             }
+            #[cfg(not(feature = "postgres_backend"))]
+            "postgresql" | "postgres" => Err(anyhow!("未启用 postgres_backend feature")),
             #[cfg(feature = "mysql_backend")]
             "mysql" => {
                 let pool = {
@@ -421,6 +463,7 @@ impl DatabaseManager {
             }
             #[cfg(not(feature = "mysql_backend"))]
             "mysql" => Err(anyhow!("未启用 mysql_backend feature")),
+            #[cfg(feature = "sqlite_backend")]
             "sqlite" => {
                 let pool = {
                     let r = SQLITE_POOLS.read().await;
@@ -443,6 +486,8 @@ impl DatabaseManager {
                 }
                 Ok(())
             }
+            #[cfg(not(feature = "sqlite_backend"))]
+            "sqlite" => Err(anyhow!("未启用 sqlite_backend feature")),
             other => Err(anyhow!("不支持的数据库类型: {} (group={})", other, group)),
         }
     }
@@ -485,7 +530,7 @@ impl DatabaseManager {
     pub async fn pool_count_mysql() -> usize {
         MYSQL_POOLS.read().await.len()
     }
-    #[cfg(test)]
+    #[cfg(all(test, feature = "sqlite_backend"))]
     pub async fn pool_count_sqlite() -> usize {
         SQLITE_POOLS.read().await.len()
     }
@@ -495,7 +540,7 @@ impl DatabaseManager {
     }
 
     /// 仅用于测试：重置池缓存
-    #[cfg(test)]
+    #[cfg(all(test, feature = "postgres_backend"))]
     pub async fn reset_postgres_pools() {
         POSTGRES_POOLS.write().await.clear();
         HEALTH_GROUPS.write().await.clear();
@@ -504,7 +549,7 @@ impl DatabaseManager {
     pub async fn reset_mysql_pools() {
         MYSQL_POOLS.write().await.clear();
     }
-    #[cfg(test)]
+    #[cfg(all(test, feature = "sqlite_backend"))]
     pub async fn reset_sqlite_pools() {
         SQLITE_POOLS.write().await.clear();
     }
@@ -541,8 +586,12 @@ mod tests {
 
         DatabaseManager::reset_postgres_pools().await;
 
-        let p1 = DatabaseManager::get_any_pool_by_group("default").await.unwrap();
-        let p2 = DatabaseManager::get_any_pool_by_group("default").await.unwrap();
+        let p1 = DatabaseManager::get_any_pool_by_group("default")
+            .await
+            .unwrap();
+        let p2 = DatabaseManager::get_any_pool_by_group("default")
+            .await
+            .unwrap();
         assert_eq!(DatabaseManager::pool_count_any().await, 1);
 
         // 进行健康检查（若本地未运行数据库，可能失败，但不会 panic）

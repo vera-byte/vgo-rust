@@ -1,7 +1,7 @@
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
-use v::db::database::{DatabaseManager, DbPool};
 use tokio::time::{sleep, Duration};
+use v::db::database::{DatabaseManager, DbPool};
 mod model;
 use model::{BaseSysConf, NewBaseSysConf};
 
@@ -66,8 +66,16 @@ async fn main() {
     );
 
     let rows = vec![
-        NewBaseSysConf { tenantId: 1, cKey: "site_name".into(), cValue: "vgo".into() },
-        NewBaseSysConf { tenantId: 1, cKey: "theme".into(), cValue: "dark".into() },
+        NewBaseSysConf {
+            tenantId: 1,
+            cKey: "site_name".into(),
+            cValue: "vgo".into(),
+        },
+        NewBaseSysConf {
+            tenantId: 1,
+            cKey: "theme".into(),
+            cValue: "dark".into(),
+        },
     ];
     diesel::insert_into(base_sys_conf::table)
         .values(&rows)
@@ -91,7 +99,9 @@ async fn init_pg_pool_with_retry(
 ) -> Option<diesel::r2d2::Pool<diesel::r2d2::ConnectionManager<PgConnection>>> {
     for attempt in 1..=max_attempts {
         match DatabaseManager::get_any_pool_by_group(group).await {
+            #[cfg(feature = "postgres_backend")]
             Ok(DbPool::Postgres(p)) => return Some(p),
+            #[cfg(feature = "sqlite_backend")]
             Ok(DbPool::Sqlite(_)) => {
                 eprintln!("[db] 组 '{}' 当前配置为 sqlite，请改为 postgresql", group);
                 return None;
