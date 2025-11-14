@@ -17,13 +17,21 @@ urlencoding = "2.1"
 futures = "0.3"
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
-diesel = { version = "2.1", default-features = false, features = ["r2d2", "chrono", "postgres"] }
+diesel = { version = "2.1", default-features = false, features = [
+    "r2d2",
+    "chrono",
+    "postgres",
+] }
+sa-token-core = "0.1.6"
+sa-token-storage-memory = "0.1.6"
+sa-token-storage-redis = "0.1.6"
+sa-token-plugin-actix-web = "0.1.6"
 
-# 使用可用的 sa-token 版本
-sa-token-core = "0.1.5"
-sa-token-storage-memory = "0.1.5"
-sa-token-storage-redis = "0.1.5"
-sa-token-plugin-actix-web = "0.1.5"
+[features]
+postgres_backend = []
+mysql_backend = []
+sqlite_backend = []
+redis = []
 
 [[bin]]
 name = "server"

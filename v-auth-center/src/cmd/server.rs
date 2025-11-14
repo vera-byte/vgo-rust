@@ -1,11 +1,13 @@
 use actix_web::middleware::Logger;
 use actix_web::{web, App, HttpServer};
 use anyhow::Result;
+use diesel::RunQueryDsl;
 use sa_token_plugin_actix_web::{SaTokenMiddleware, SaTokenState};
 use tracing::info;
-use v_auth_center::config::sa_token_conf;
-mod controller_registry {
-    include!(concat!(env!("OUT_DIR"), "/controller_registry.rs"));
+use v::db::database::{DatabaseManager, DbPool};
+use v_auth_center::config::sa_token_conf::{init_sa_token, RedisConfig};
+mod api_registry {
+    include!(concat!(env!("OUT_DIR"), "/api_registry.rs"));
 }
 
 #[tokio::main]
@@ -15,12 +17,6 @@ async fn main() -> Result<()> {
     let host: String = v::get_config("server.host").unwrap_or_else(|_| "0.0.0.0".to_string());
     let port: i64 = v::get_config("server.port").unwrap_or(3000_i64);
     let workers: Option<i64> = v::get_config("server.workers").ok();
-
-    let storage_type: String =
-        v::get_config("sa_token.storage").unwrap_or_else(|_| "memory".to_string());
-    let timeout_seconds: i64 = v::get_config("sa_token.timeout_seconds").unwrap_or(7200_i64);
-    let token_name: String =
-        v::get_config("sa_token.token_name").unwrap_or_else(|_| "satoken".to_string());
 
     let addr = format!("{}:{}", host, port);
 
@@ -33,7 +29,9 @@ async fn main() -> Result<()> {
     );
     // 1. 初始化 Sa-Token (StpUtil会自动初始化)
     // 1. Initialize Sa-Token (StpUtil will be automatically initialized)
-    let sa_token_manager = sa_token_conf::init_sa_token(None)
+    // 获取 Redis 配置（可选） / Optional Redis config
+    let redis_config = v::get_config_safe::<RedisConfig>("redis").ok();
+    let sa_token_manager = init_sa_token(redis_config.as_ref())
         .await
         .expect("Sa-Token initialization failed"); // Sa-Token initialization failed ｜Sa-Token 初始化失败
 
@@ -47,17 +45,15 @@ async fn main() -> Result<()> {
 
     tracing::info!(" Sa-Token initialized successfully"); // Sa-Token initialized successfully | Sa-Token 初始化成功
 
-    info!(
-        "sa-token initialized: storage={} timeout={} token={}",
-        storage_type, timeout_seconds, token_name
-    );
+    // 打印路由信息 / Print route information
+    api_registry::print_routes(&addr, &["Logger", "SaTokenMiddleware"]);
 
     let server = HttpServer::new(move || {
         App::new()
             .app_data(sa_token_data.clone()) // 注入 Sa-Token 到应用状态 / Inject Sa-Token into application state
             .wrap(SaTokenMiddleware::new(sa_token_state.clone()))
             .wrap(Logger::default())
-            .configure(controller_registry::configure)
+            .configure(api_registry::configure)
     });
 
     let server = if let Some(w) = workers {
@@ -69,6 +65,37 @@ async fn main() -> Result<()> {
     } else {
         server
     };
+
+    match DatabaseManager::get_any_pool_by_group("default").await {
+        Ok(pool) => {
+            match pool {
+                DbPool::Postgres(p) => {
+                    let mut ok = false;
+                    let r = tokio::task::spawn_blocking(move || {
+                        let mut conn = p.get();
+                        match conn {
+                            Ok(mut c) => {
+                                let _ = diesel::sql_query("SELECT 1").execute(&mut c);
+                                ok = true;
+                            }
+                            Err(_) => {}
+                        }
+                        ok
+                    })
+                    .await
+                    .unwrap_or(false);
+                    if !r {
+                        anyhow::bail!("database default not healthy");
+                    }
+                }
+                _ => {}
+            }
+            info!("database group=default healthy");
+        }
+        Err(e) => {
+            anyhow::bail!("database init failed: {}", e);
+        }
+    }
 
     info!(
         "starting http server: bind={} workers={}",

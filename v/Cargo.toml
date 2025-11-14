@@ -13,6 +13,7 @@ config = [
     "dep:serde",
     "dep:serde_json",
 ]
+
 sqlite_backend = ["diesel/sqlite"]
 postgres_backend = ["diesel/postgres"]
 mysql_backend = ["diesel/mysql"]

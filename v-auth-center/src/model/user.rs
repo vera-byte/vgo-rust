@@ -1,44 +1,71 @@
-// 用户模型与 Diesel 映射 / User model and Diesel mapping
-use diesel::prelude::*;
+// 用户业务模型 / User business model
+use diesel::deserialize::QueryableByName;
+use diesel::sql_types::{BigInt, Bool, Date, Integer, SmallInt, Text, Timestamp};
 use serde::{Deserialize, Serialize};
-
-// 表模块：users（包含公共审计列与业务列） / Table module: users (common audit columns + business columns)
-diesel::table! {
-    users (id) {
-        id -> BigInt,
-        tenant_id -> BigInt,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        username -> Text,
-        email -> Text,
-        password_hash -> Text,
-    }
-}
-
-// 业务模型：统一公共字段为 camelCase，并映射到 snake_case 列
-// Business model: unify common fields in camelCase, map to snake_case columns
-#[derive(Debug, Clone, Serialize, Deserialize, Queryable, Selectable, AsChangeset, Insertable)]
-#[diesel(table_name = users)]
+#[allow(non_snake_case)]
+#[derive(Debug, Clone, Serialize, Deserialize, QueryableByName)]
 pub struct User {
+    #[diesel(sql_type = BigInt)]
     pub id: i64,
-    #[diesel(column_name = tenant_id)]
-    pub tenantId: i64,
-    #[diesel(column_name = created_at)]
-    pub createTime: chrono::NaiveDateTime,
-    #[diesel(column_name = updated_at)]
-    pub updateTime: chrono::NaiveDateTime,
+    #[diesel(sql_type = Timestamp)]
+    pub create_time: chrono::NaiveDateTime,
+    #[diesel(sql_type = Timestamp)]
+    pub update_time: chrono::NaiveDateTime,
+    #[diesel(sql_type = diesel::sql_types::Nullable<Integer>)]
+    pub tenant_id: Option<i32>,
+    #[diesel(sql_type = Text)]
     pub username: String,
-    pub email: String,
-    #[diesel(column_name = password_hash)]
-    pub passwordHash: String,
+    #[diesel(sql_type = diesel::sql_types::Nullable<Text>)]
+    pub email: Option<String>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<Text>)]
+    pub mobile: Option<String>,
+    #[diesel(sql_type = Text)]
+    pub password_hash: String,
+    #[diesel(sql_type = diesel::sql_types::Nullable<Text>)]
+    pub real_name: Option<String>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<Text>)]
+    pub nick_name: Option<String>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<Text>)]
+    pub avatar_url: Option<String>,
+    #[diesel(sql_type = SmallInt)]
+    pub gender: i16,
+    #[diesel(sql_type = diesel::sql_types::Nullable<Date>)]
+    pub birthday: Option<chrono::NaiveDate>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<Text>)]
+    pub id_card: Option<String>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<Text>)]
+    pub country: Option<String>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<Text>)]
+    pub province: Option<String>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<Text>)]
+    pub city: Option<String>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<Text>)]
+    pub district: Option<String>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<Text>)]
+    pub address: Option<String>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<Text>)]
+    pub postal_code: Option<String>,
+    #[diesel(sql_type = SmallInt)]
+    pub status: i16,
+    #[diesel(sql_type = Bool)]
+    pub is_email_verified: bool,
+    #[diesel(sql_type = Bool)]
+    pub is_mobile_verified: bool,
+    #[diesel(sql_type = diesel::sql_types::Nullable<Timestamp>)]
+    pub last_login_time: Option<chrono::NaiveDateTime>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<Text>)]
+    pub last_login_ip: Option<String>,
+    #[diesel(sql_type = Integer)]
+    pub login_count: i32,
+    #[diesel(sql_type = diesel::sql_types::Nullable<Text>)]
+    pub source: Option<String>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<Text>)]
+    pub invite_code: Option<String>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<BigInt>)]
+    pub referrer_id: Option<i64>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<Text>)]
+    pub remark: Option<String>,
 }
 
-// 指定表名与数据库组名 / Bind table and database group
-impl v::db::database::Model for User {
-    fn table_name() -> &'static str {
-        "users"
-    }
-    fn group_name() -> &'static str {
-        "default"
-    }
-}
+pub const TABLE_NAME: &str = "user";
+pub const TABLE_GROUP: &str = "default";

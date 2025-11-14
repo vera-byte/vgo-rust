@@ -6,12 +6,14 @@ use sa_token_core::config::TokenStyle;
 use sa_token_core::LoggingListener;
 use sa_token_core::{SaTokenConfig, SaTokenManager};
 use sa_token_storage_memory::MemoryStorage;
+use sa_token_storage_redis::{RedisConfig as RedisCfg, RedisStorage};
+use serde::Deserialize;
 use std::sync::Arc;
 use v::get_global_config_manager;
 
 /// Redis配置
 /// Redis Configuration
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct RedisConfig {
     pub url: String,
     pub prefix: Option<String>,
@@ -36,7 +38,14 @@ pub async fn init_sa_token(redis_config: Option<&RedisConfig>) -> Result<Arc<SaT
     // TokenStyle 映射 / TokenStyle mapping
     let token_style = match token_style_str.to_lowercase().as_str() {
         "random64" => TokenStyle::Random64,
-        _ => TokenStyle::Random64,
+        "jwt" => TokenStyle::Jwt,
+        "uuid" => TokenStyle::Uuid,
+        "hash" => TokenStyle::Hash,
+        "random128" => TokenStyle::Random128,
+        "random32" => TokenStyle::Random32,
+        "simple_uuid" => TokenStyle::SimpleUuid,
+        "tik" => TokenStyle::Tik,
+        _ => TokenStyle::Timestamp,
     };
 
     // 创建配置构建器 / Create config builder
@@ -48,53 +57,38 @@ pub async fn init_sa_token(redis_config: Option<&RedisConfig>) -> Result<Arc<SaT
         .token_style(token_style)
         .auto_renew(auto_renew);
 
-    // 根据配置选择存储方式
-    // Choose storage method based on configuration
+    // 根据配置选择存储方式 / Choose storage method based on configuration
     if let Some(_redis_cfg) = redis_config {
-        #[cfg(feature = "redis")]
+        match RedisStorage::new(
+            &_redis_cfg.url,
+            _redis_cfg
+                .prefix
+                .clone()
+                .unwrap_or_else(|| "sa_token:".to_string()),
+        )
+        .await
         {
-            use sa_token_storage_redis::{RedisConfig, RedisStorage};
-
-            let redis_storage = RedisStorage::new(RedisConfig {
-                url: _redis_cfg.url.clone(),
-                prefix: _redis_cfg
-                    .prefix
-                    .clone()
-                    .unwrap_or_else(|| "sa_token:".to_string()),
-            })
-            .await?;
-
-            config_builder = config_builder.storage(Arc::new(redis_storage));
-            tracing::info!("使用 Redis 存储: {}", _redis_cfg.url);
-            tracing::info!("Using Redis storage: {}", _redis_cfg.url);
-        }
-
-        #[cfg(not(feature = "redis"))]
-        {
-            tracing::warn!("Redis 功能未启用，回退到内存存储");
-            tracing::warn!("Redis feature not enabled, falling back to memory storage");
-            config_builder = config_builder.storage(Arc::new(MemoryStorage::new()));
+            Ok(redis_storage) => {
+                config_builder = config_builder.storage(Arc::new(redis_storage));
+                tracing::info!("Using Redis storage: {}", _redis_cfg.url);
+            }
+            Err(e) => {
+                tracing::warn!("Redis init failed, falling back to memory storage: {}", e);
+                config_builder = config_builder.storage(Arc::new(MemoryStorage::new()));
+            }
         }
     } else if storage_type.eq_ignore_ascii_case("redis") {
-        #[cfg(feature = "redis")]
-        {
-            use sa_token_storage_redis::{RedisConfig as RedisCfg, RedisStorage};
-            let url: String = mgr.get_or("sa_token.redis.url", "redis://127.0.0.1/".to_string());
-            let prefix: String = mgr.get_or("sa_token.redis.prefix", "sa_token:".to_string());
-            let redis_storage = RedisStorage::new(RedisCfg {
-                url: url.clone(),
-                prefix,
-            })
-            .await?;
-            config_builder = config_builder.storage(Arc::new(redis_storage));
-            tracing::info!("使用 Redis 存储: {}", url);
-            tracing::info!("Using Redis storage: {}", url);
-        }
-        #[cfg(not(feature = "redis"))]
-        {
-            tracing::warn!("Redis 特性未启用，回退到内存存储");
-            tracing::warn!("Redis feature not enabled, falling back to memory storage");
-            config_builder = config_builder.storage(Arc::new(MemoryStorage::new()));
+        let url: String = mgr.get_or("sa_token.redis.url", "redis://127.0.0.1/".to_string());
+        let prefix: String = mgr.get_or("sa_token.redis.prefix", "sa_token:".to_string());
+        match RedisStorage::new(&url, prefix).await {
+            Ok(redis_storage) => {
+                config_builder = config_builder.storage(Arc::new(redis_storage));
+                tracing::info!("Using Redis storage: {}", url);
+            }
+            Err(e) => {
+                tracing::warn!("Redis init failed, falling back to memory storage: {}", e);
+                config_builder = config_builder.storage(Arc::new(MemoryStorage::new()));
+            }
         }
     } else {
         // 使用内存存储 / Use memory storage

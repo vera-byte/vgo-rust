@@ -95,7 +95,7 @@ impl DatabaseManager {
         let max_open: u32 = mgr
             .get(&format!("database.{}.maxOpen", group))
             .map(|v: i64| v as u32)
-            .unwrap_or(10);
+            .unwrap_or(4);
 
         // 构建 r2d2 连接池：按类型拼接 URL
         let url = match typ.as_str() {
@@ -142,7 +142,9 @@ impl DatabaseManager {
             #[cfg(feature = "postgres_backend")]
             "postgresql" | "postgres" => {
                 let manager = ConnectionManager::<PgConnection>::new(url);
-                let builder = r2d2::Pool::builder().max_size(max_open);
+                let builder = r2d2::Pool::builder()
+                    .max_size(max_open)
+                    .connection_timeout(Duration::from_secs(2));
                 DbPool::Postgres(builder.build(manager).map_err(|e| anyhow!(e))?)
             }
             #[cfg(not(feature = "postgres_backend"))]
@@ -150,7 +152,9 @@ impl DatabaseManager {
             #[cfg(feature = "mysql_backend")]
             "mysql" => {
                 let manager = ConnectionManager::<MysqlConnection>::new(url);
-                let builder = r2d2::Pool::builder().max_size(max_open);
+                let builder = r2d2::Pool::builder()
+                    .max_size(max_open)
+                    .connection_timeout(Duration::from_secs(2));
                 DbPool::Mysql(builder.build(manager).map_err(|e| anyhow!(e))?)
             }
             #[cfg(not(feature = "mysql_backend"))]
@@ -158,7 +162,9 @@ impl DatabaseManager {
             #[cfg(feature = "sqlite_backend")]
             "sqlite" => {
                 let manager = ConnectionManager::<SqliteConnection>::new(url);
-                let builder = r2d2::Pool::builder().max_size(max_open);
+                let builder = r2d2::Pool::builder()
+                    .max_size(max_open)
+                    .connection_timeout(Duration::from_secs(2));
                 DbPool::Sqlite(builder.build(manager).map_err(|e| anyhow!(e))?)
             }
             #[cfg(not(feature = "sqlite_backend"))]

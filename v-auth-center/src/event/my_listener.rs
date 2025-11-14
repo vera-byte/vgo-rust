@@ -1,12 +1,16 @@
 use async_trait::async_trait;
 use sa_token_core::SaTokenListener;
+use tracing::info;
 
 pub struct MyListener;
 
 #[async_trait]
 impl SaTokenListener for MyListener {
     async fn on_login(&self, login_id: &str, token: &str, login_type: &str) {
-        println!("用户 {} 登录了，token: {}", login_id, token);
+        info!(
+            "用户 {} 登录了，token: {}, login_type: {}",
+            login_id, token, login_type
+        );
 
         // 在这里添加您的业务逻辑
         // 例如：
@@ -17,11 +21,17 @@ impl SaTokenListener for MyListener {
     }
 
     async fn on_logout(&self, login_id: &str, token: &str, login_type: &str) {
-        println!("用户 {} 登出了", login_id);
+        info!(
+            "用户 {} 登出了，token: {}, login_type: {}",
+            login_id, token, login_type
+        );
     }
 
     async fn on_kick_out(&self, login_id: &str, token: &str, login_type: &str) {
-        println!("用户 {} 被踢出下线", login_id);
+        info!(
+            "用户 {} 被踢出下线，token: {}, login_type: {}",
+            login_id, token, login_type
+        );
     }
 
     // 其他事件方法是可选的

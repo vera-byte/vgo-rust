@@ -1655,9 +1655,9 @@ checksum = "28d3b2b1366ec20994f1fd18c3c594f05c5dd4bc44d8bb0c1c632c8d6829481f"
 
 [[package]]
 name = "sa-token-adapter"
-version = "0.1.5"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25cd823364356db5ee5a4858e0dd267cc7f8e20b701309fbad9bb07914c0c725"
+checksum = "58d257945f71c504ac085418ac11eb9485093af9143852809a1ad61afdcccc5d"
 dependencies = [
  "async-trait",
  "http 1.3.1",
@@ -1669,9 +1669,9 @@ dependencies = [
 
 [[package]]
 name = "sa-token-core"
-version = "0.1.5"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d98112b7498ab225d4679b2cb3bfcc52240cd48053910c905601ca1688fc004"
+checksum = "b8bd21cb06d87c50433210f7ea7cb385197c328f459998d6a994a4749ab83fca"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1703,9 +1703,9 @@ dependencies = [
 
 [[package]]
 name = "sa-token-plugin-actix-web"
-version = "0.1.5"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6ce8a4af8bc8593eb73768bebb1a48ebef643b80ccfbae653c50d452b7b7355"
+checksum = "22d85bb941874d0c486b720006d760ec3d23426a739b416994b630b62d9f92af"
 dependencies = [
  "actix-web",
  "async-trait",
@@ -1722,21 +1722,22 @@ dependencies = [
 
 [[package]]
 name = "sa-token-storage-memory"
-version = "0.1.5"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a726e75581ba4d49494b551d03f64a2e6efbbbf1a22ea85a012e3796fb8a7293"
+checksum = "4b79cfc1b911cf12c1a98c9a226cab37e5e2ce8eaf66a3904aea3ddb73f9c644"
 dependencies = [
  "async-trait",
  "chrono",
+ "regex",
  "sa-token-adapter",
  "tokio",
 ]
 
 [[package]]
 name = "sa-token-storage-redis"
-version = "0.1.5"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "392d74df44273eda15460f489fcc67e7068cb2ea92a301ac518a0c69e19dfd36"
+checksum = "429e280377789910b286b7c8bfe3f330a99eedcd8118dd86753425c005faf266"
 dependencies = [
  "async-trait",
  "redis",

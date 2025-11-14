@@ -19,7 +19,7 @@ pass = "wRJksJcYWsRBbhHw"
 name = "vgo_rust_master"
 charset = "utf8mb4"
 timezone = "Asia/Shanghai"
-maxOpen = 100
+maxOpen = 10
 
 [database.test]
 type = "postgresql"
@@ -31,6 +31,16 @@ name = "vgo_rust_master"
 charset = "utf8mb4"
 timezone = "Asia/Shanghai"
 maxOpen = 100
+
+[sa_token]
+storage = "redis"
+token_name = "Authorization"
+timeout_seconds = 7200
+token_style = "tik"
+[sa_token.redis]
+url = "redis://127.0.0.1:6379/0"
+prefix = "sa_token:"
+
 
 [logging]
 level = "info"
