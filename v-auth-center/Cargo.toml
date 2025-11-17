@@ -22,10 +22,8 @@ diesel = { version = "2.1", default-features = false, features = [
     "chrono",
     "postgres",
 ] }
-sa-token-core = "0.1.6"
-sa-token-storage-memory = "0.1.6"
-sa-token-storage-redis = "0.1.6"
-sa-token-plugin-actix-web = "0.1.6"
+
+sa-token-plugin-actix-web = { version = "0.1.7", features = ["redis"] }
 
 [features]
 postgres_backend = []

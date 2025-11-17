@@ -1,7 +1,7 @@
 use crate::model::user::User;
-use crate::repo::user_repo::{self, info};
+use crate::repo::user_repo::{self};
 use anyhow::Result;
-use sa_token_core::StpUtil;
+use sa_token_plugin_actix_web::StpUtil;
 use serde_json::json;
 
 pub async fn get_user(id: i64) -> Result<Option<User>> {

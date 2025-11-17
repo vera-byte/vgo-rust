@@ -17,8 +17,6 @@ diesel::table! {
     }
 }
 
-use diesel::dsl::*;
-
 #[allow(dead_code)]
 fn now_utc() -> chrono::DateTime<chrono::Utc> {
     chrono::Utc::now()

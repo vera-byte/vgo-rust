@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 pub fn register(cfg: &mut actix_web::web::ServiceConfig, path: &str) {
     cfg.service(web::resource(path).route(web::post().to(login)));
 }
-use sa_token_plugin_actix_web::SaTokenState;
+use sa_token_plugin_actix_web::{SaTokenState, StpUtil};
 use v::http::HttpError;
 // ==================== 请求/响应类型 ====================
 // ==================== Request/Response Types ====================
@@ -87,8 +87,8 @@ pub async fn login(
 
     // 获取用户权限和角色（使用 StpUtil）
     // Get user permissions and roles (using StpUtil)
-    let permissions = sa_token_core::StpUtil::get_permissions(user_id).await;
-    let roles = sa_token_core::StpUtil::get_roles(user_id).await;
+    let permissions = StpUtil::get_permissions(user_id).await;
+    let roles = StpUtil::get_roles(user_id).await;
 
     tracing::info!(
         "✅ 用户 {} 登录成功，权限: {:?}, 角色: {:?}",

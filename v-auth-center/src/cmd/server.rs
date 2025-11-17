@@ -72,7 +72,7 @@ async fn main() -> Result<()> {
                 DbPool::Postgres(p) => {
                     let mut ok = false;
                     let r = tokio::task::spawn_blocking(move || {
-                        let mut conn = p.get();
+                        let conn = p.get();
                         match conn {
                             Ok(mut c) => {
                                 let _ = diesel::sql_query("SELECT 1").execute(&mut c);

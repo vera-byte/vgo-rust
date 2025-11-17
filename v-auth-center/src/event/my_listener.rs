@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use sa_token_core::SaTokenListener;
+use sa_token_plugin_actix_web::SaTokenListener;
 use tracing::info;
 
 pub struct MyListener;

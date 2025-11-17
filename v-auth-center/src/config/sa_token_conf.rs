@@ -2,11 +2,9 @@
 //! Sa-Token Configuration Initialization
 use crate::event::my_listener::MyListener;
 use anyhow::Result;
-use sa_token_core::config::TokenStyle;
-use sa_token_core::LoggingListener;
-use sa_token_core::{SaTokenConfig, SaTokenManager};
-use sa_token_storage_memory::MemoryStorage;
-use sa_token_storage_redis::{RedisConfig as RedisCfg, RedisStorage};
+use sa_token_plugin_actix_web::{
+    LoggingListener, MemoryStorage, RedisStorage, SaTokenConfig, SaTokenManager, TokenStyle,
+};
 use serde::Deserialize;
 use std::sync::Arc;
 use v::get_global_config_manager;
