@@ -5,6 +5,5 @@
 fn main() {
     println!("cargo:rerun-if-changed=src/api");
     println!("cargo:rerun-if-changed=src/model");
-    v::comm::api::run_for_auth_center().expect("code generation failed");
+    v::comm::generator::run_for_auth_center().expect("code generation failed");
 }
-

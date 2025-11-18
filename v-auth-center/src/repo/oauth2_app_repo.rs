@@ -1,9 +1,7 @@
 use anyhow::{anyhow, Result};
-use diesel::deserialize::QueryableByName;
-use diesel::prelude::*;
-use diesel::sql_types::{BigInt, Text};
 use std::time::Duration;
 use tracing::info;
+use v::db::query::QueryPg;
 
 fn expand_sql_with_binds(sql: &str, binds: &[String]) -> String {
     let mut s = sql.to_string();
@@ -13,60 +11,37 @@ fn expand_sql_with_binds(sql: &str, binds: &[String]) -> String {
     }
     s
 }
-use v::db::database::{DatabaseManager, DbPool};
+// 使用 QueryPg 构建查询 / Use QueryPg builder
 
-#[derive(QueryableByName)]
-struct AppJsonRow {
-    #[diesel(sql_type = Text, column_name = data)]
-    data: String,
-}
+// 通过 SQL row_to_json 映射 / Map via SQL row_to_json
 
-const SQL_LIST: &str = "SELECT row_to_json(t.*)::text AS data FROM (SELECT * FROM \"public\".\"oauth2_app\" WHERE deleted_at IS NULL ORDER BY id ASC) t";
-const SQL_INFO: &str = "SELECT row_to_json(t.*)::text AS data FROM (SELECT * FROM \"public\".\"oauth2_app\" WHERE id = $1 LIMIT 1) t";
+const SQL_LIST_INNER: &str = ""; // not used with builder
+const SQL_INFO_INNER: &str = ""; // not used with builder
 
 pub async fn list() -> Result<Vec<crate::model::oauth2_app::OAuth2App>> {
-    let pool = DatabaseManager::get_db_pool::<crate::model::oauth2_app::OAuth2App>().await?;
-    let DbPool::Postgres(p) = pool;
-    let p_clone = p.clone();
-    let rows: Vec<crate::model::oauth2_app::OAuth2App> =
-        tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
-            let mut conn = p_clone
-                .get_timeout(Duration::from_secs(2))
-                .map_err(|e| anyhow!(e))?;
-            let q = diesel::sql_query(SQL_LIST);
-            info!("{}", SQL_LIST);
-            let r: Vec<AppJsonRow> = q.load(&mut conn).map_err(|e| anyhow!(e))?;
-            let models: Vec<crate::model::oauth2_app::OAuth2App> = r
-                .into_iter()
-                .map(|row| serde_json::from_str::<crate::model::oauth2_app::OAuth2App>(&row.data))
-                .collect::<Result<_, _>>()
-                .map_err(|e| anyhow!(e))?;
-            Ok(models)
-        })
-        .await??;
-    Ok(rows)
+    let vals = QueryPg::<crate::model::oauth2_app::OAuth2App>::new()
+        .await?
+        .order_by("id ASC")
+        .fetch_all_json()
+        .await?;
+    let models = vals
+        .into_iter()
+        .map(|v| serde_json::from_value::<crate::model::oauth2_app::OAuth2App>(v))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(models)
 }
 
 pub async fn info(id: i64) -> Result<Option<crate::model::oauth2_app::OAuth2App>> {
-    let pool = DatabaseManager::get_db_pool::<crate::model::oauth2_app::OAuth2App>().await?;
-    let DbPool::Postgres(p) = pool;
-    let p_clone = p.clone();
-    let rows: Vec<crate::model::oauth2_app::OAuth2App> =
-        tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
-            let mut conn = p_clone
-                .get_timeout(Duration::from_secs(2))
-                .map_err(|e| anyhow!(e))?;
-            let q = diesel::sql_query(SQL_INFO).bind::<BigInt, _>(id);
-            let expanded = expand_sql_with_binds(SQL_INFO, &[id.to_string()]);
-            info!("{}", expanded);
-            let r: Vec<AppJsonRow> = q.load(&mut conn).map_err(|e| anyhow!(e))?;
-            let models: Vec<crate::model::oauth2_app::OAuth2App> = r
-                .into_iter()
-                .map(|row| serde_json::from_str::<crate::model::oauth2_app::OAuth2App>(&row.data))
-                .collect::<Result<_, _>>()
-                .map_err(|e| anyhow!(e))?;
-            Ok(models)
-        })
-        .await??;
-    Ok(rows.into_iter().next())
+    let v = QueryPg::<crate::model::oauth2_app::OAuth2App>::new()
+        .await?
+        .where_eq_json("id", serde_json::json!(id))
+        .limit(1)
+        .fetch_one_json()
+        .await;
+    match v {
+        Ok(val) => Ok(Some(serde_json::from_value::<
+            crate::model::oauth2_app::OAuth2App,
+        >(val)?)),
+        Err(_) => Ok(None),
+    }
 }

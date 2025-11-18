@@ -1,10 +1,9 @@
 use actix_web::middleware::Logger;
 use actix_web::{web, App, HttpServer};
 use anyhow::Result;
-use diesel::RunQueryDsl;
 use sa_token_plugin_actix_web::{SaTokenMiddleware, SaTokenState};
 use tracing::info;
-use v::db::database::{DatabaseManager, DbPool};
+use v::db::connection::{check_health, get_pool};
 use v_auth_center::config::sa_token_conf::init_sa_token;
 mod api_registry {
     include!(concat!(env!("OUT_DIR"), "/api_registry.rs"));
@@ -46,7 +45,7 @@ async fn main() -> Result<()> {
 
     let sa_token_data = web::Data::new(sa_token_state.clone());
 
-    tracing::info!(" Sa-Token initialized successfully"); // Sa-Token initialized successfully | Sa-Token 初始化成功
+    info!(" Sa-Token initialized successfully"); // Sa-Token initialized successfully | Sa-Token 初始化成功
 
     // 打印路由信息 / Print route information
     api_registry::print_routes(&addr, &["Logger", "SaTokenMiddleware"]);
@@ -69,29 +68,9 @@ async fn main() -> Result<()> {
         server
     };
 
-    match DatabaseManager::get_any_pool_by_group("default").await {
+    match get_pool("default").await {
         Ok(pool) => {
-            match pool {
-                DbPool::Postgres(p) => {
-                    let mut ok = false;
-                    let r = tokio::task::spawn_blocking(move || {
-                        let conn = p.get();
-                        match conn {
-                            Ok(mut c) => {
-                                let _ = diesel::sql_query("SELECT 1").execute(&mut c);
-                                ok = true;
-                            }
-                            Err(_) => {}
-                        }
-                        ok
-                    })
-                    .await
-                    .unwrap_or(false);
-                    if !r {
-                        anyhow::bail!("database default not healthy");
-                    }
-                }
-            }
+            let _ = check_health(&pool).await?;
             info!("database group=default healthy");
         }
         Err(e) => {

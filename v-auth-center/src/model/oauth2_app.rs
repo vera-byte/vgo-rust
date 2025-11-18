@@ -3,54 +3,126 @@
 // Description: Business model fields aligned with database schema using snake_case
 
 use serde::{Deserialize, Serialize};
-use diesel::deserialize::QueryableByName;
-use diesel::sql_types::{BigInt, Bool, Jsonb, SmallInt, Text, Timestamp};
+use v::db::model::{ColType, ColumnDef, ModelSpec};
 
-#[derive(Debug, Clone, Serialize, Deserialize, QueryableByName)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OAuth2App {
-    #[diesel(sql_type = BigInt)]
     pub id: i64,
-    #[diesel(sql_type = diesel::sql_types::Nullable<BigInt>)]
     pub tenant_id: Option<i64>,
-    #[diesel(sql_type = Text)]
     pub name: String,
-    #[diesel(sql_type = Text)]
     pub client_id: String,
-    #[diesel(sql_type = diesel::sql_types::Nullable<Text>)]
     pub client_secret: Option<String>,
-    #[diesel(sql_type = SmallInt)]
     pub confidentiality: i16,
-    #[diesel(sql_type = Bool)]
     pub first_party: bool,
-    #[diesel(sql_type = SmallInt)]
     pub status: i16,
-    #[diesel(sql_type = diesel::sql_types::Nullable<Timestamp>)]
     pub revoked_at: Option<chrono::NaiveDateTime>,
-    #[diesel(sql_type = diesel::sql_types::Array<Text>)]
     pub redirect_uris: Vec<String>,
-    #[diesel(sql_type = diesel::sql_types::Array<Text>)]
     pub grant_types: Vec<String>,
-    #[diesel(sql_type = diesel::sql_types::Array<Text>)]
     pub response_types: Vec<String>,
-    #[diesel(sql_type = diesel::sql_types::Array<Text>)]
     pub scopes: Vec<String>,
-    #[diesel(sql_type = Text)]
     pub token_auth_method: String,
-    #[diesel(sql_type = diesel::sql_types::Nullable<Text>)]
     pub logo_url: Option<String>,
-    #[diesel(sql_type = diesel::sql_types::Nullable<Text>)]
     pub website_url: Option<String>,
-    #[diesel(sql_type = Jsonb)]
     pub contacts: serde_json::Value,
-    #[diesel(sql_type = Jsonb)]
     pub metadata: serde_json::Value,
-    #[diesel(sql_type = Timestamp)]
     pub created_at: chrono::NaiveDateTime,
-    #[diesel(sql_type = Timestamp)]
     pub updated_at: chrono::NaiveDateTime,
-    #[diesel(sql_type = diesel::sql_types::Nullable<Timestamp>)]
     pub deleted_at: Option<chrono::NaiveDateTime>,
 }
 
 pub const TABLE_NAME: &str = "oauth2_app";
 pub const TABLE_GROUP: &str = "default";
+
+// DbModel 由构建脚本自动实现 / DbModel is auto-implemented by build script
+
+impl ModelSpec for OAuth2App {
+    fn columns() -> &'static [ColumnDef] {
+        static COLS: &[ColumnDef] = &[
+            ColumnDef {
+                name: "id",
+                ty: ColType::Int64,
+            },
+            ColumnDef {
+                name: "tenant_id",
+                ty: ColType::Int64,
+            },
+            ColumnDef {
+                name: "name",
+                ty: ColType::Text,
+            },
+            ColumnDef {
+                name: "client_id",
+                ty: ColType::Text,
+            },
+            ColumnDef {
+                name: "client_secret",
+                ty: ColType::Text,
+            },
+            ColumnDef {
+                name: "confidentiality",
+                ty: ColType::Int16,
+            },
+            ColumnDef {
+                name: "first_party",
+                ty: ColType::Bool,
+            },
+            ColumnDef {
+                name: "status",
+                ty: ColType::Int16,
+            },
+            ColumnDef {
+                name: "revoked_at",
+                ty: ColType::Timestamp,
+            },
+            ColumnDef {
+                name: "redirect_uris",
+                ty: ColType::ArrayText,
+            },
+            ColumnDef {
+                name: "grant_types",
+                ty: ColType::ArrayText,
+            },
+            ColumnDef {
+                name: "response_types",
+                ty: ColType::ArrayText,
+            },
+            ColumnDef {
+                name: "scopes",
+                ty: ColType::ArrayText,
+            },
+            ColumnDef {
+                name: "token_auth_method",
+                ty: ColType::Text,
+            },
+            ColumnDef {
+                name: "logo_url",
+                ty: ColType::Text,
+            },
+            ColumnDef {
+                name: "website_url",
+                ty: ColType::Text,
+            },
+            ColumnDef {
+                name: "contacts",
+                ty: ColType::Json,
+            },
+            ColumnDef {
+                name: "metadata",
+                ty: ColType::Json,
+            },
+            ColumnDef {
+                name: "created_at",
+                ty: ColType::Timestamp,
+            },
+            ColumnDef {
+                name: "updated_at",
+                ty: ColType::Timestamp,
+            },
+            ColumnDef {
+                name: "deleted_at",
+                ty: ColType::Timestamp,
+            },
+        ];
+        COLS
+    }
+}

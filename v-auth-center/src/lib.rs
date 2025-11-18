@@ -7,12 +7,7 @@ pub mod event;
 pub mod config;
 
 pub mod model {
-    pub mod user {
-        include!("model/user.rs");
-    }
-    pub mod oauth2_app {
-        include!("model/oauth2_app.rs");
-    }
+    include!(concat!(env!("OUT_DIR"), "/model_tree.rs"));
     include!(concat!(env!("OUT_DIR"), "/model_auto.rs"));
 }
 pub mod repo;
