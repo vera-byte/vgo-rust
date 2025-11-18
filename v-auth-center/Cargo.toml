@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
-v = { path = "../v", features = ["postgres_backend", "web_actix"] }
+v = { path = "../v", features = ["web_actix"] }
 anyhow = "1"
 actix-web = "4"
 actix-rt = "2"
@@ -25,11 +25,13 @@ diesel = { version = "2.1", default-features = false, features = [
 
 sa-token-plugin-actix-web = { version = "0.1.7", features = ["redis"] }
 
+[build-dependencies]
+v = { path = "../v" }
+
 [features]
-postgres_backend = []
-mysql_backend = []
-sqlite_backend = []
 redis = []
+web_actix = []
+postgres_backend = []
 
 [[bin]]
 name = "server"

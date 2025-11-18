@@ -1,0 +1,29 @@
+# 开发环境配置
+[server]
+debug = true
+port = 8080
+
+[logging]
+level = "debug"
+json_format = false
+
+[database]
+url = "sqlite://./dev.db"
+max_connections = 5
+
+# 为 default 分组覆盖连接池大小，避免本地 PostgreSQL 连接上限问题
+[database.default]
+maxOpen = 1
+
+[jwt]
+secret = "dev-secret-key-not-for-production"
+expiration = 7200
+
+[rate_limit]
+requests_per_minute = 1000
+
+[cors]
+allowed_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
+
+[redis]
+url = "redis://:123456@10.0.0.200:6379/0"

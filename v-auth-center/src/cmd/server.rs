@@ -5,18 +5,22 @@ use diesel::RunQueryDsl;
 use sa_token_plugin_actix_web::{SaTokenMiddleware, SaTokenState};
 use tracing::info;
 use v::db::database::{DatabaseManager, DbPool};
-use v_auth_center::config::sa_token_conf::{init_sa_token, RedisConfig};
+use v_auth_center::config::sa_token_conf::init_sa_token;
 mod api_registry {
     include!(concat!(env!("OUT_DIR"), "/api_registry.rs"));
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let cm = v::get_global_config_manager()?;
+    cm.print_sources_info();
     v::init_tracing()?;
 
-    let host: String = v::get_config("server.host").unwrap_or_else(|_| "0.0.0.0".to_string());
-    let port: i64 = v::get_config("server.port").unwrap_or(3000_i64);
-    let workers: Option<i64> = v::get_config("server.workers").ok();
+    let host: String = cm
+        .get_string("server.host")
+        .unwrap_or_else(|_| "0.0.0.0".to_string());
+    let port: i64 = cm.get_int("server.port").unwrap_or(3000_i64);
+    let workers: Option<i64> = cm.get_int("server.workers").ok();
 
     let addr = format!("{}:{}", host, port);
 
@@ -30,8 +34,7 @@ async fn main() -> Result<()> {
     // 1. 初始化 Sa-Token (StpUtil会自动初始化)
     // 1. Initialize Sa-Token (StpUtil will be automatically initialized)
     // 获取 Redis 配置（可选） / Optional Redis config
-    let redis_config = v::get_config_safe::<RedisConfig>("redis").ok();
-    let sa_token_manager = init_sa_token(redis_config.as_ref())
+    let sa_token_manager = init_sa_token()
         .await
         .expect("Sa-Token initialization failed"); // Sa-Token initialization failed ｜Sa-Token 初始化失败
 
@@ -88,7 +91,6 @@ async fn main() -> Result<()> {
                         anyhow::bail!("database default not healthy");
                     }
                 }
-                _ => {}
             }
             info!("database group=default healthy");
         }

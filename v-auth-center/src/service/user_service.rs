@@ -14,7 +14,7 @@ pub async fn list_users() -> Result<Vec<User>> {
 
 pub async fn user_login() -> Result<String> {
     let permissions = vec!["user:read".to_string(), "user:write".to_string()];
-    StpUtil::set_permissions("new_user_456", permissions.clone()).await;
+    let _ = StpUtil::set_permissions("new_user_456", permissions.clone()).await;
     let per_result = StpUtil::get_permissions("new_user_456").await;
     tracing::info!("get_permissions result: {:?}", per_result);
     let token = StpUtil::builder("new_user_456")

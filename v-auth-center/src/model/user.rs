@@ -8,9 +8,9 @@ pub struct User {
     #[diesel(sql_type = BigInt)]
     pub id: i64,
     #[diesel(sql_type = Timestamp)]
-    pub create_time: chrono::NaiveDateTime,
+    pub created_at: chrono::NaiveDateTime,
     #[diesel(sql_type = Timestamp)]
-    pub update_time: chrono::NaiveDateTime,
+    pub updated_at: chrono::NaiveDateTime,
     #[diesel(sql_type = diesel::sql_types::Nullable<Integer>)]
     pub tenant_id: Option<i32>,
     #[diesel(sql_type = Text)]
@@ -65,6 +65,8 @@ pub struct User {
     pub referrer_id: Option<i64>,
     #[diesel(sql_type = diesel::sql_types::Nullable<Text>)]
     pub remark: Option<String>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<Timestamp>)]
+    pub deleted_at: Option<chrono::NaiveDateTime>,
 }
 
 pub const TABLE_NAME: &str = "user";
