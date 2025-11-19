@@ -3,16 +3,14 @@
 -- 创建通用的更新时间自动更新函数
 -- ================================
 
--- ----------------------------
--- 公共触发器函数：自动更新update_time字段
--- 功能：在记录更新时自动将update_time字段设置为当前时间戳
--- 使用范围：所有包含update_time字段的表
--- ----------------------------
+-- 修改说明：统一字段为 updated_at / Unify field name to updated_at
+-- Description: Update NEW.updated_at on each update
 CREATE OR REPLACE FUNCTION public.update_update_time()
 RETURNS TRIGGER AS $$
 BEGIN
-    -- 将update_time字段更新为当前时间戳
-    NEW."update_time" = NOW();
+    -- 修改说明：将 updated_at 字段更新为当前时间戳
+    -- Description: set updated_at to current timestamp
+    NEW."updated_at" = NOW();
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -25,11 +23,8 @@ COMMENT ON FUNCTION public.update_update_time() IS
 '公共触发器函数，用于自动更新update_time时间戳字段。
 用法：在包含update_time字段的表上创建BEFORE UPDATE触发器。';
 
--- ----------------------------
--- 公共触发器函数：自动更新modified_at字段
--- 功能：在记录更新时自动将modified_at字段设置为当前时间戳
--- 使用范围：所有包含modified_at字段的表
--- ----------------------------
+-- 修改说明：保留兼容的 modified_at 更新函数（如不再使用可移除）
+-- Description: Keep backward-compatible modified_at updater (optional)
 CREATE OR REPLACE FUNCTION public.update_modified_at()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -47,20 +42,16 @@ COMMENT ON FUNCTION public.update_modified_at() IS
 '公共触发器函数，用于自动更新modified_at时间戳字段。
 用法：在包含modified_at字段的表上创建BEFORE UPDATE触发器。';
 
--- ----------------------------
--- 工具函数：为现有表自动应用更新时间触发器
--- 功能：根据表名和时间字段名自动创建相应的触发器
--- ----------------------------
 CREATE OR REPLACE FUNCTION public.apply_update_time_trigger(
-    table_name TEXT, 
-    time_field TEXT DEFAULT 'update_time'
+    table_name TEXT,
+    time_field TEXT DEFAULT 'updated_at'
 )
 RETURNS VOID AS $$
 DECLARE
     function_name TEXT;
 BEGIN
     -- 根据时间字段名确定使用哪个函数
-    IF time_field = 'update_time' THEN
+    IF time_field = 'updated_at' THEN
         function_name := 'update_update_time';
     ELSIF time_field = 'modified_at' THEN
         function_name := 'update_modified_at';

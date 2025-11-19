@@ -1,6 +1,7 @@
 use anyhow::Result;
-use tracing_subscriber::{fmt, EnvFilter};
 use chrono::{Datelike, Timelike};
+use tracing_log::LogTracer;
+use tracing_subscriber::{fmt, EnvFilter};
 
 struct LogTimer;
 
@@ -28,7 +29,9 @@ pub fn init_tracing() -> Result<()> {
         .and_then(|mgr| mgr.get("logging.level").ok())
         .unwrap_or_else(|| "info".to_string());
 
-    let filter = EnvFilter::try_new(level).unwrap_or_else(|_| EnvFilter::new("info"));
+    let filter = EnvFilter::try_new(format!("{},sqlx=trace", level))
+        .unwrap_or_else(|_| EnvFilter::new("info,sqlx=trace"));
+    LogTracer::init().ok();
     fmt::SubscriberBuilder::default()
         .with_env_filter(filter)
         .with_timer(LogTimer)

@@ -45,3 +45,21 @@ pub async fn info(id: i64) -> Result<Option<crate::model::oauth2_app::OAuth2App>
         Err(_) => Ok(None),
     }
 }
+
+// 根据client_id查询应用信息
+pub async fn info_by_client_id(
+    client_id: &str,
+) -> Result<Option<crate::model::oauth2_app::OAuth2App>> {
+    let v = QueryPg::<crate::model::oauth2_app::OAuth2App>::new()
+        .await?
+        .where_eq_json("client_id", serde_json::json!(client_id))
+        .limit(1)
+        .fetch_one_json()
+        .await;
+    match v {
+        Ok(val) => Ok(Some(serde_json::from_value::<
+            crate::model::oauth2_app::OAuth2App,
+        >(val)?)),
+        Err(_) => Ok(None),
+    }
+}

@@ -2,25 +2,26 @@
 -- 修复时间时区问题迁移脚本
 -- ================================
 
--- 1. 更新公共函数使用NOW()确保时区一致性
+-- 1. 统一 updated_at 字段的触发器逻辑
+-- Unify trigger to update NEW.updated_at
 CREATE OR REPLACE FUNCTION public.update_update_time()
 RETURNS TRIGGER AS $$
 BEGIN
-    NEW."update_time" = NOW();
+    NEW."updated_at" = NOW();
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
--- 2. 更新user_wx表的默认值
-ALTER TABLE "public"."user_wx" 
-ALTER COLUMN "create_time" SET DEFAULT NOW(),
-ALTER COLUMN "update_time" SET DEFAULT NOW();
+-- 2. 更新 user_wx 表的默认值（统一为 created_at/updated_at）
+ALTER TABLE "public"."user_wx"
+ALTER COLUMN "created_at" SET DEFAULT NOW(),
+ALTER COLUMN "updated_at" SET DEFAULT NOW();
 
--- 3. 更新现有数据的时间字段（如果有数据）
--- UPDATE "public"."user_wx" SET 
--- "create_time" = "create_time" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Shanghai',
--- "update_time" = "update_time" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Shanghai'
--- WHERE "create_time" IS NOT NULL;
+-- 3. 更新现有数据的时间字段（如果需要）
+-- UPDATE "public"."user_wx" SET
+-- "created_at" = "created_at" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Shanghai',
+-- "updated_at" = "updated_at" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Shanghai'
+-- WHERE "created_at" IS NOT NULL;
 
 -- 4. 设置会话时区建议
 COMMENT ON TABLE "public"."user_wx" IS '微信用户信息表';

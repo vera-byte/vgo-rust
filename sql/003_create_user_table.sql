@@ -12,9 +12,10 @@ CREATE TABLE "public"."user" (
   -- 主键标识
   "id" BIGSERIAL PRIMARY KEY,
   
-  -- 时间戳字段
-  "create_time" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  "update_time" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  -- 时间戳字段（统一命名） / Unified audit timestamps
+  "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  "deleted_at" TIMESTAMPTZ NULL,
   
   -- 租户信息
   "tenant_id" INTEGER,
@@ -67,15 +68,15 @@ CREATE TABLE "public"."user" (
 
 -- 基础索引
 CREATE INDEX "idx_user_tenant_id" ON "public"."user" ("tenant_id");
-CREATE INDEX "idx_user_create_time" ON "public"."user" ("create_time");
-CREATE INDEX "idx_user_update_time" ON "public"."user" ("update_time");
+CREATE INDEX "idx_user_created_at" ON "public"."user" ("created_at");
+CREATE INDEX "idx_user_updated_at" ON "public"."user" ("updated_at");
 CREATE INDEX "idx_user_status" ON "public"."user" ("status");
 
 -- 账户唯一性索引
-CREATE UNIQUE INDEX "uk_user_username_tenant" ON "public"."user" ("username", "tenant_id");
-CREATE UNIQUE INDEX "uk_user_email" ON "public"."user" ("email") WHERE "email" IS NOT NULL;
-CREATE UNIQUE INDEX "uk_user_mobile" ON "public"."user" ("mobile") WHERE "mobile" IS NOT NULL;
-CREATE UNIQUE INDEX "uk_user_id_card" ON "public"."user" ("id_card") WHERE "id_card" IS NOT NULL;
+CREATE UNIQUE INDEX "uk_user_username_tenant" ON "public"."user" ("username", "tenant_id") WHERE "deleted_at" IS NULL;
+CREATE UNIQUE INDEX "uk_user_email" ON "public"."user" ("email") WHERE "email" IS NOT NULL AND "deleted_at" IS NULL;
+CREATE UNIQUE INDEX "uk_user_mobile" ON "public"."user" ("mobile") WHERE "mobile" IS NOT NULL AND "deleted_at" IS NULL;
+CREATE UNIQUE INDEX "uk_user_id_card" ON "public"."user" ("id_card") WHERE "id_card" IS NOT NULL AND "deleted_at" IS NULL;
 
 -- 查询优化索引
 CREATE INDEX "idx_user_real_name" ON "public"."user" ("real_name");
@@ -111,8 +112,9 @@ COMMENT ON TABLE "public"."user" IS '用户基本信息表';
 
 -- 主键和时间
 COMMENT ON COLUMN "public"."user"."id" IS '主键ID';
-COMMENT ON COLUMN "public"."user"."create_time" IS '创建时间';
-COMMENT ON COLUMN "public"."user"."update_time" IS '更新时间';
+COMMENT ON COLUMN "public"."user"."created_at" IS '创建时间';
+COMMENT ON COLUMN "public"."user"."updated_at" IS '更新时间';
+COMMENT ON COLUMN "public"."user"."deleted_at" IS '软删除时间';
 
 -- 租户信息
 COMMENT ON COLUMN "public"."user"."tenant_id" IS '租户ID';

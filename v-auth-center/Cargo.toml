@@ -17,7 +17,7 @@ urlencoding = "2.1"
 futures = "0.3"
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
-
+validator = { version = "0.20.0", features = ["derive"] }
 sa-token-plugin-actix-web = { version = "0.1.7", features = ["redis"] }
 
 [build-dependencies]

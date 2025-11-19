@@ -6,8 +6,9 @@
 DROP TABLE IF EXISTS "public"."user_wx";
 CREATE TABLE "public"."user_wx" (
   "id" BIGSERIAL PRIMARY KEY,
-  "create_time" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  "update_time" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  "deleted_at" TIMESTAMPTZ NULL,
   "tenant_id" INTEGER,
   
   -- 关联用户表
@@ -35,17 +36,17 @@ CREATE TABLE "public"."user_wx" (
 );
 
 -- 索引
-CREATE INDEX "idx_user_wx_update_time" ON "public"."user_wx" ("update_time");
+CREATE INDEX "idx_user_wx_updated_at" ON "public"."user_wx" ("updated_at");
 CREATE INDEX "idx_user_wx_openid" ON "public"."user_wx" ("openid");
 CREATE INDEX "idx_user_wx_unionid" ON "public"."user_wx" ("unionid");
-CREATE INDEX "idx_user_wx_create_time" ON "public"."user_wx" ("create_time");
+CREATE INDEX "idx_user_wx_created_at" ON "public"."user_wx" ("created_at");
 CREATE INDEX "idx_user_wx_tenant_id" ON "public"."user_wx" ("tenant_id");
 CREATE INDEX "idx_user_wx_user_id" ON "public"."user_wx" ("user_id");
 
 -- 唯一索引
-CREATE UNIQUE INDEX "uk_user_wx_openid" ON "public"."user_wx" ("openid");
-CREATE UNIQUE INDEX "uk_user_wx_unionid_tenant" ON "public"."user_wx" ("unionid", "tenant_id") WHERE "unionid" IS NOT NULL;
-CREATE UNIQUE INDEX "uk_user_wx_user_type" ON "public"."user_wx" ("user_id", "type") WHERE "user_id" IS NOT NULL;
+CREATE UNIQUE INDEX "uk_user_wx_openid" ON "public"."user_wx" ("openid") WHERE "deleted_at" IS NULL;
+CREATE UNIQUE INDEX "uk_user_wx_unionid_tenant" ON "public"."user_wx" ("unionid", "tenant_id") WHERE "unionid" IS NOT NULL AND "deleted_at" IS NULL;
+CREATE UNIQUE INDEX "uk_user_wx_user_type" ON "public"."user_wx" ("user_id", "type") WHERE "user_id" IS NOT NULL AND "deleted_at" IS NULL;
 
 -- 自动更新时间触发器
 CREATE TRIGGER trigger_user_wx_update_time
@@ -56,8 +57,9 @@ CREATE TRIGGER trigger_user_wx_update_time
 -- 表注释
 COMMENT ON TABLE "public"."user_wx" IS '微信用户信息表（关联user表）';
 COMMENT ON COLUMN "public"."user_wx"."id" IS '主键ID';
-COMMENT ON COLUMN "public"."user_wx"."create_time" IS '创建时间';
-COMMENT ON COLUMN "public"."user_wx"."update_time" IS '更新时间';
+COMMENT ON COLUMN "public"."user_wx"."created_at" IS '创建时间';
+COMMENT ON COLUMN "public"."user_wx"."updated_at" IS '更新时间';
+COMMENT ON COLUMN "public"."user_wx"."deleted_at" IS '软删除时间';
 COMMENT ON COLUMN "public"."user_wx"."tenant_id" IS '租户ID';
 COMMENT ON COLUMN "public"."user_wx"."user_id" IS '关联用户ID';
 COMMENT ON COLUMN "public"."user_wx"."unionid" IS '微信unionid';
