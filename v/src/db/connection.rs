@@ -33,7 +33,7 @@ pub async fn get_pool(group: &str) -> Result<Pool<Postgres>> {
 /// 读取配置键 / Reads config keys:
 /// - `database.<group>.url` 或 `host/port/user/pass/name/maxOpen`
 async fn build_pool(group: &str) -> Result<Pool<Postgres>> {
-    let mgr = get_global_config_manager()?;
+    let mgr = get_global_config_manager().map_err(|e| DbError::Config(e.to_string()))?;
     let typ: String = mgr
         .get_or(
             &format!("database.{}.type", group),

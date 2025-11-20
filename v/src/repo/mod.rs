@@ -1,4 +1,5 @@
-use anyhow::Result;
+use crate::db::error::DbError;
+type Result<T> = std::result::Result<T, DbError>;
 use async_trait::async_trait;
 
 /// 通用仓库 Trait，约定标准 CRUD 操作。

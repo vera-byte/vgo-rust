@@ -7,7 +7,6 @@ edition = "2021"
 [features]
 default = ["config", "web_actix"]
 config = [
-    "dep:thiserror",
     "dep:config",
     "dep:lazy_static",
     "dep:serde",
@@ -18,13 +17,12 @@ web_actix = ["dep:actix-web"]
 [dependencies]
 # 以 feature 形式可选启用配置模块所需依赖（通过 dep: 前缀引用）
 tokio = { version = "1", features = ["full"] }
-anyhow = "1"
 sqlx = { version = "0.7", default-features = false, features = [
     "runtime-tokio-native-tls",
     "postgres",
     "chrono"
 ] }
-thiserror = { version = "2", optional = true }
+thiserror = "2"
 config = { version = "0.15.18", optional = true }
 lazy_static = { version = "1.4", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }

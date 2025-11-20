@@ -1,4 +1,3 @@
-use anyhow::Result;
 use chrono::{Datelike, Timelike};
 use tracing_log::LogTracer;
 use tracing_subscriber::{fmt, EnvFilter};
@@ -23,7 +22,7 @@ impl fmt::time::FormatTime for LogTimer {
     }
 }
 
-pub fn init_tracing() -> Result<()> {
+pub fn init_tracing() {
     let level: String = crate::comm::config::get_global_config_manager()
         .ok()
         .and_then(|mgr| mgr.get("logging.level").ok())
@@ -39,5 +38,5 @@ pub fn init_tracing() -> Result<()> {
         .with_target(false)
         .try_init()
         .ok();
-    Ok(())
+    ()
 }

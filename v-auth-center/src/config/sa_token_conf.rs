@@ -12,7 +12,7 @@
 //! Sa-Token 配置初始化
 //! Sa-Token Configuration Initialization
 use crate::event::my_listener::MyListener;
-use anyhow::Result;
+type SaResult<T> = std::result::Result<T, v::comm::config::ConfigError>;
 use sa_token_plugin_actix_web::{
     LoggingListener, MemoryStorage, OAuth2Manager, RedisStorage, SaStorage, SaTokenConfig,
     SaTokenManager, TokenStyle,
@@ -38,7 +38,7 @@ pub struct RedisConfig {
 /// 示例(Example):
 /// - 中文: `let mgr = init_sa_token(Some(&RedisConfig{ url: "redis://127.0.0.1/0".into(), prefix: None })).await?;`
 /// - English: `let mgr = init_sa_token(Some(&RedisConfig{ url: "redis://127.0.0.1/0".into(), prefix: None })).await?;`
-pub async fn init_sa_token() -> Result<Arc<SaTokenManager>> {
+pub async fn init_sa_token() -> SaResult<Arc<SaTokenManager>> {
     // 步骤1: 读取 Sa-Token 相关配置 (名称/超时/样式/续期/存储类型)
     let cfg = read_sa_cfg()?;
     // 步骤2: 选择存储后端 (优先使用显式 Redis 配置, 其次按 sa_token.storage)
@@ -76,7 +76,7 @@ struct SaCfg {
 /// 返回(Return): `SaCfg` 聚合配置
 /// 异常(Errors): 配置管理器不可用时返回错误
 /// 复杂度(Complexity): O(1)
-fn read_sa_cfg() -> Result<SaCfg> {
+fn read_sa_cfg() -> SaResult<SaCfg> {
     let mgr = get_global_config_manager()?;
     let token_name: String = mgr.get_or("sa_token.token_name", "Authorization".to_string());
     let timeout_seconds: i64 = mgr.get_or("sa_token.timeout_seconds", 86400_i64);
@@ -117,7 +117,7 @@ fn map_token_style(s: &str) -> TokenStyle {
 /// 返回(Return): `Arc<dyn SaStorage>` 已初始化的存储实例
 /// 异常(Errors): Redis 初始化失败将回退内存并记录日志；配置读取失败返回错误
 /// 示例(Example): `let storage = build_storage(Some(&rc), "redis").await?;`
-async fn build_storage(storage_type: &str) -> Result<Arc<dyn SaStorage>> {
+async fn build_storage(storage_type: &str) -> SaResult<Arc<dyn SaStorage>> {
     let redis_config = v::get_config_safe::<RedisConfig>("redis").ok();
     if let Some(rc) = redis_config {
         match RedisStorage::new(
@@ -160,7 +160,7 @@ async fn build_storage(storage_type: &str) -> Result<Arc<dyn SaStorage>> {
 /// 返回(Return): `OAuth2Manager` 已配置的 OAuth2 管理器实例
 /// 异常(Errors): 存储初始化失败将返回错误
 /// 示例(Example): `let oauth2 = init_sa_token_oath2().await?;`
-pub async fn init_sa_token_oath2() -> Result<OAuth2Manager> {
+pub async fn init_sa_token_oath2() -> SaResult<OAuth2Manager> {
     // 步骤1: 读取 Sa-Token 相关配置 (名称/超时/样式/续期/存储类型)
     let cfg = read_sa_cfg()?;
     // 步骤2: 选择存储后端 (优先使用显式 Redis 配置, 其次按 sa_token.storage)

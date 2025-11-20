@@ -9,7 +9,7 @@ Copyright: © VGO Project. All rights reserved.
 设计目标：保持与原 v-auth-center 的 build.rs 功能一致，同时更清晰的结构与错误处理。
 */
 
-use anyhow::Result;
+use thiserror::Error;
 use std::path::Path;
 
 mod model;
@@ -27,6 +27,16 @@ Complexity: O(F) where F is number of files scanned.
 Usage: generator::run(&manifest_dir, &out_dir)?;
 中文说明：扫描 api 与 model 目录，生成路由注册与打印函数、模块树、模型接口实现，写入 OUT_DIR。
 */
+#[derive(Debug, Error)]
+pub enum GenError {
+    #[error("IO错误: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("环境变量错误: {0}")]
+    Env(#[from] std::env::VarError),
+}
+
+pub type Result<T> = std::result::Result<T, GenError>;
+
 pub fn run(manifest_dir: &str, out_dir: &str) -> Result<()> {
     println!("cargo:rerun-if-changed=src/api");
     println!("cargo:rerun-if-changed=src/model");
@@ -49,7 +59,7 @@ pub fn run(manifest_dir: &str, out_dir: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn run_for_auth_center() -> anyhow::Result<()> {
+pub fn run_for_auth_center() -> Result<()> {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")?;
     let out_dir = std::env::var("OUT_DIR")?;
     run(&manifest_dir, &out_dir)

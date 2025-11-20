@@ -6,7 +6,6 @@ edition = "2021"
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 v = { path = "../v", features = ["web_actix"] }
-anyhow = "1"
 actix-web = "4"
 actix-rt = "2"
 serde = { version = "1.0", features = ["derive"] }
@@ -19,6 +18,7 @@ async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 validator = { version = "0.20.0", features = ["derive"] }
 sa-token-plugin-actix-web = { version = "0.1.7", features = ["redis"] }
+thiserror = "2"
 
 [build-dependencies]
 v = { path = "../v" }

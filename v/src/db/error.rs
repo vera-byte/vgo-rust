@@ -18,11 +18,7 @@ pub enum DbError {
     Serde(#[from] serde_json::Error),
 }
 
-impl From<anyhow::Error> for DbError {
-    fn from(e: anyhow::Error) -> Self {
-        DbError::Config(e.to_string())
-    }
-}
+// 保留统一错误描述函数，避免在各层重复构建错误字符串
 
 /// 获取详细错误描述（中英文） / Get detailed error description (CN/EN)
 pub fn describe_error(e: &DbError) -> String {

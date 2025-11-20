@@ -3194,7 +3194,6 @@ name = "v"
 version = "0.1.0"
 dependencies = [
  "actix-web",
- "anyhow",
  "async-trait",
  "chrono",
  "config",
@@ -3219,13 +3218,13 @@ version = "0.1.0"
 dependencies = [
  "actix-rt",
  "actix-web",
- "anyhow",
  "async-trait",
  "chrono",
  "futures",
  "sa-token-plugin-actix-web",
  "serde",
  "serde_json",
+ "thiserror 2.0.17",
  "tokio",
  "tracing",
  "tracing-subscriber",

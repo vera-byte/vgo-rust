@@ -1,9 +1,9 @@
 use std::ptr;
 
-use anyhow::Result;
+use std::error::Error;
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> Result<(), Box<dyn Error>> {
     println!("============================");
     println!("v::get_config");
     println!(

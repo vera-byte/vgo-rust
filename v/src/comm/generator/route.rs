@@ -1,10 +1,11 @@
-use anyhow::Result;
+use crate::comm::generator::GenError;
+use std::result::Result;
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-pub fn generate_api_artifacts(manifest_dir: &str, out_dir: &str) -> Result<()> {
+pub fn generate_api_artifacts(manifest_dir: &str, out_dir: &str) -> Result<(), GenError> {
     let api_root = Path::new(manifest_dir).join("src").join("api");
     let mut entries: Vec<(String, PathBuf, bool)> = Vec::new();
     if api_root.exists() { collect_apis(&api_root, &api_root, &mut entries); }
@@ -129,4 +130,3 @@ fn detect_methods(s: &str) -> Vec<String> { let mut m = Vec::new(); for (needle,
 fn detect_handlers(s: &str) -> Vec<String> { let mut hs = Vec::new(); let key = ".to("; let mut start = 0usize; while let Some(i) = s[start..].find(key) { let abs_i = start + i + key.len(); let tail = &s[abs_i..]; let mut name = String::new(); for ch in tail.chars() { if ch.is_alphanumeric() || ch == '_' { name.push(ch); } else { break; } } let nlen = name.len(); if !name.is_empty() { hs.push(name); } start = abs_i + nlen; } hs }
 
 fn detect_resource_paths(s: &str) -> Vec<String> { let mut rs = Vec::new(); let key = "web::resource(\""; let mut start = 0usize; while let Some(i) = s[start..].find(key) { let abs_i = start + i + key.len(); let tail = &s[abs_i..]; let mut path = String::new(); for ch in tail.chars() { if ch == '"' { break; } path.push(ch); } let plen = path.len(); if !path.is_empty() { rs.push(path); } start = abs_i + plen; } rs }
-

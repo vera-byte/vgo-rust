@@ -1,6 +1,6 @@
 use actix_web::middleware::Logger;
 use actix_web::{web, App, HttpServer};
-use anyhow::Result;
+use thiserror::Error;
 use sa_token_plugin_actix_web::{SaTokenMiddleware, SaTokenState};
 use tracing::info;
 use v::db::connection::{check_health, get_pool};
@@ -9,11 +9,21 @@ mod api_registry {
     include!(concat!(env!("OUT_DIR"), "/api_registry.rs"));
 }
 
+#[derive(Debug, Error)]
+enum AppError {
+    #[error("配置错误: {0}")]
+    Config(#[from] v::comm::config::ConfigError),
+    #[error("数据库错误: {0}")]
+    Db(#[from] v::db::error::DbError),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+}
+
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> Result<(), AppError> {
     let cm = v::get_global_config_manager()?;
     cm.print_sources_info();
-    v::init_tracing()?;
+    v::init_tracing();
 
     let host: String = cm
         .get_string("server.host")
@@ -68,15 +78,9 @@ async fn main() -> Result<()> {
         server
     };
 
-    match get_pool("default").await {
-        Ok(pool) => {
-            let _ = check_health(&pool).await?;
-            info!("database group=default healthy");
-        }
-        Err(e) => {
-            anyhow::bail!("database init failed: {}", e);
-        }
-    }
+    let pool = get_pool("default").await?;
+    let _ = check_health(&pool).await?;
+    info!("database group=default healthy");
 
     info!(
         "starting http server: bind={} workers={}",

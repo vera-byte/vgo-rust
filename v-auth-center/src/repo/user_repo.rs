@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use v::db::error::Result;
 use v::db::query::QueryPg;
 const SQL_LIST_INNER: &str = ""; // not used with builder
 const SQL_INFO_INNER: &str = ""; // not used with builder
@@ -11,8 +11,11 @@ pub async fn list() -> Result<Vec<crate::model::user::User>> {
         .await?;
     let models = vals
         .into_iter()
-        .map(|v| serde_json::from_value::<crate::model::user::User>(v))
-        .collect::<Result<Vec<_>, _>>()?;
+        .map(|v| {
+            serde_json::from_value::<crate::model::user::User>(v)
+                .map_err(v::db::error::DbError::from)
+        })
+        .collect::<std::result::Result<Vec<_>, v::db::error::DbError>>()?;
     Ok(models)
 }
 

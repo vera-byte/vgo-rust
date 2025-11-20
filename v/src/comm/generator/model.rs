@@ -1,10 +1,11 @@
-use anyhow::Result;
+use crate::comm::generator::GenError;
+use std::result::Result;
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-pub fn generate_model_artifacts(manifest_dir: &str, out_dir: &str) -> Result<()> {
+pub fn generate_model_artifacts(manifest_dir: &str, out_dir: &str) -> Result<(), GenError> {
     let model_root = Path::new(manifest_dir).join("src").join("model");
     let mut model_files: Vec<PathBuf> = Vec::new();
     if model_root.exists() { collect_rs_files(&model_root, &model_root, &mut model_files); }
@@ -84,4 +85,3 @@ fn emit_model_dir(out: &mut String, dir: &PathBuf, dirs: &BTreeMap<PathBuf, Vec<
     for d in children_dirs { if let Some(name) = d.file_name().and_then(|s| s.to_str()) { out.push_str(&format!("pub mod {} {{\n", name)); emit_model_dir(out, &d, dirs, files); out.push_str("}\n"); } }
     for f in children_files { if let Some(stem) = f.file_stem().and_then(|s| s.to_str()) { let p = format!("/src/model/{}", escape_path(&f)); out.push_str(&format!("pub mod {} {{ include!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"{}\")); }}\n", stem, p)); } }
 }
-

@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use v::db::error::Result;
 use std::time::Duration;
 use tracing::info;
 use v::db::query::QueryPg;
@@ -26,8 +26,11 @@ pub async fn list() -> Result<Vec<crate::model::oauth2_app::OAuth2App>> {
         .await?;
     let models = vals
         .into_iter()
-        .map(|v| serde_json::from_value::<crate::model::oauth2_app::OAuth2App>(v))
-        .collect::<Result<Vec<_>, _>>()?;
+        .map(|v| {
+            serde_json::from_value::<crate::model::oauth2_app::OAuth2App>(v)
+                .map_err(v::db::error::DbError::from)
+        })
+        .collect::<std::result::Result<Vec<_>, v::db::error::DbError>>()?;
     Ok(models)
 }
 
