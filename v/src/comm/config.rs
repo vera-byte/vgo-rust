@@ -1,9 +1,9 @@
-use thiserror::Error;
 use config::{Config, ConfigBuilder, Environment, File, FileFormat};
 use lazy_static::lazy_static;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, ConfigError>;
 
@@ -126,14 +126,18 @@ impl ConfigManager {
                     });
                 }
                 Err(e) => {
-                    return Err(ConfigError::InitializationError { message: format!("添加配置源失败: {}", e) });
+                    return Err(ConfigError::InitializationError {
+                        message: format!("添加配置源失败: {}", e),
+                    });
                 }
             }
         }
 
         let config = builder
             .build()
-            .map_err(|e| ConfigError::InitializationError { message: format!("构建配置失败: {}", e) })?;
+            .map_err(|e| ConfigError::InitializationError {
+                message: format!("构建配置失败: {}", e),
+            })?;
         Ok(Self {
             config,
             sources_info,
@@ -144,7 +148,10 @@ impl ConfigManager {
     pub fn get<T: DeserializeOwned>(&self, key: &str) -> Result<T> {
         self.config
             .get(key)
-            .map_err(|e| ConfigError::TypeConversionError { key: key.to_string(), message: e.to_string() })
+            .map_err(|e| ConfigError::TypeConversionError {
+                key: key.to_string(),
+                message: e.to_string(),
+            })
     }
 
     /// 获取指定 key 的配置值，如果不存在返回默认值
@@ -153,13 +160,18 @@ impl ConfigManager {
         self.get(key).unwrap_or(default)
     }
 
-    /// 安全获取配置值（返回 anyhow::Result，包含更清晰的错误信息）
+    /// 安全获取配置值
     pub fn get_safe<T: DeserializeOwned>(&self, key: &str) -> Result<T> {
         self.config.get(key).map_err(|e| {
             if e.to_string().contains("not found") {
-                ConfigError::KeyNotFound { key: key.to_string() }
+                ConfigError::KeyNotFound {
+                    key: key.to_string(),
+                }
             } else {
-                ConfigError::TypeConversionError { key: key.to_string(), message: e.to_string() }
+                ConfigError::TypeConversionError {
+                    key: key.to_string(),
+                    message: e.to_string(),
+                }
             }
         })
     }
@@ -257,12 +269,14 @@ impl ConfigManager {
         );
     }
 
-    /// 验证必需的配置项（anyhow）
+    /// 验证必需的配置项（thiserror）
     #[allow(dead_code)]
     pub fn validate_required_keys(&self, required_keys: &[&str]) -> Result<()> {
         for key in required_keys {
             if !self.exists(key) {
-                return Err(ConfigError::KeyNotFound { key: key.to_string() });
+                return Err(ConfigError::KeyNotFound {
+                    key: key.to_string(),
+                });
             }
         }
         Ok(())
@@ -378,8 +392,10 @@ impl ConfigSource {
                     .ignore_empty(true),
             )),
             ConfigSource::Memory(map) => {
-                let json_content = serde_json::to_string(&map)
-                    .map_err(|e| ConfigError::FormatError { message: format!("序列化内存配置失败: {}", e) })?;
+                let json_content =
+                    serde_json::to_string(&map).map_err(|e| ConfigError::FormatError {
+                        message: format!("序列化内存配置失败: {}", e),
+                    })?;
                 Ok(builder.add_source(File::from_str(&json_content, FileFormat::Json)))
             }
             ConfigSource::String { content, format } => {
@@ -392,17 +408,23 @@ impl ConfigSource {
 /// 获取全局配置管理器实例（单例模式）
 pub fn get_global_config_manager() -> Result<Arc<ConfigManager>> {
     {
-        let manager = GLOBAL_CONFIG_MANAGER
-            .read()
-            .map_err(|e| ConfigError::InitializationError { message: format!("读取全局配置管理器锁失败: {}", e) })?;
+        let manager =
+            GLOBAL_CONFIG_MANAGER
+                .read()
+                .map_err(|e| ConfigError::InitializationError {
+                    message: format!("读取全局配置管理器锁失败: {}", e),
+                })?;
         if let Some(ref config_manager) = *manager {
             return Ok(Arc::clone(config_manager));
         }
     }
     {
-        let mut manager = GLOBAL_CONFIG_MANAGER
-            .write()
-            .map_err(|e| ConfigError::InitializationError { message: format!("获取全局配置管理器写锁失败: {}", e) })?;
+        let mut manager =
+            GLOBAL_CONFIG_MANAGER
+                .write()
+                .map_err(|e| ConfigError::InitializationError {
+                    message: format!("获取全局配置管理器写锁失败: {}", e),
+                })?;
         if manager.is_none() {
             let config_manager = Arc::new(ConfigManager::new()?);
             *manager = Some(Arc::clone(&config_manager));
@@ -420,7 +442,7 @@ pub fn get_config<T: DeserializeOwned>(key: &str) -> Result<T> {
     manager.get(key)
 }
 
-/// 安全的全局配置获取函数（anyhow）
+/// 安全的全局配置获取函数（thiserror）
 #[allow(dead_code)]
 pub fn get_config_safe<T: DeserializeOwned>(key: &str) -> Result<T> {
     let manager = get_global_config_manager()?;
@@ -434,7 +456,9 @@ pub fn get_config_cached_simple(key: &str) -> Result<serde_json::Value> {
     {
         let cache = CONFIG_CACHE
             .read()
-            .map_err(|e| ConfigError::InitializationError { message: format!("读取配置缓存锁失败: {}", e) })?;
+            .map_err(|e| ConfigError::InitializationError {
+                message: format!("读取配置缓存锁失败: {}", e),
+            })?;
         if let Some(config) = cache.get(&cache_key) {
             if let Ok(value) = config.get::<serde_json::Value>(key) {
                 return Ok(value);
@@ -445,7 +469,9 @@ pub fn get_config_cached_simple(key: &str) -> Result<serde_json::Value> {
     let value: serde_json::Value = manager.get(key)?;
     let mut cache = CONFIG_CACHE
         .write()
-        .map_err(|e| ConfigError::InitializationError { message: format!("获取配置缓存写锁失败: {}", e) })?;
+        .map_err(|e| ConfigError::InitializationError {
+            message: format!("获取配置缓存写锁失败: {}", e),
+        })?;
     cache.insert(cache_key, Arc::new(manager.config.clone()));
     Ok(value)
 }

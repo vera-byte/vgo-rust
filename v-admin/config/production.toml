@@ -1,0 +1,33 @@
+# 生产环境配置
+[server]
+host = "0.0.0.0"
+port = 3005
+workers = 8
+debug = false
+
+[logging]
+level = "warn"
+json_format = true
+
+[database]
+# 生产环境数据库URL应通过环境变量设置
+# url = "${DATABASE_URL}"
+max_connections = 20
+
+[jwt]
+# JWT密钥应通过环境变量设置
+# secret = "${JWT_SECRET}"
+expiration = 3600
+
+[rate_limit]
+requests_per_minute = 100
+
+[cors]
+allowed_origins = ["https://yourdomain.com"]
+
+[redis]
+# Redis URL应通过环境变量设置
+# url = "${REDIS_URL}"
+
+[cache]
+ttl_seconds = 600

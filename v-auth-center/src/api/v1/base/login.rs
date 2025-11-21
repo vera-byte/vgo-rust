@@ -1,7 +1,9 @@
-use crate::service::base_service::BaseService;
+use crate::errors::BaseServerError;
+use crate::service::base_service::{BaseService, LoginRequest};
 use actix_web::{http, web, Responder};
 use serde::Deserialize;
 use validator::Validate;
+
 pub fn register(cfg: &mut actix_web::web::ServiceConfig, path: &str) {
     cfg.service(web::resource(path).route(web::post().to(base_login_handle)));
 }
@@ -29,16 +31,18 @@ pub async fn base_login_handle(req: web::Json<BaseLoginReq>) -> impl Responder {
     }
     let req = req.into_inner();
     // 调用基础服务登录 / Call base service login
-    let res = BaseService::login_by_password(&crate::service::base_service::LoginRequest {
+    let res = BaseService::login_by_password(&LoginRequest {
         username: req.username,
         password: req.password,
     })
     .await;
     match res {
-        Ok(_) => v::response::respond_any(http::StatusCode::OK, "base_login_handle"),
-        Err(e) => v::response::respond_any(
-            actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
-            format!("{}", e),
-        ),
+        Ok(resp) => v::response::respond_any(http::StatusCode::OK, resp),
+        Err(e) => {
+            let status = match e {
+                BaseServerError::LoginError(_) => http::StatusCode::UNAUTHORIZED,
+            };
+            v::response::respond_any(status, format!("{}", e))
+        }
     }
 }

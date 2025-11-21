@@ -9,22 +9,14 @@ Copyright: © VGO Project. All rights reserved.
 设计目标：保持与原 v-auth-center 的 build.rs 功能一致，同时更清晰的结构与错误处理。
 */
 
-use thiserror::Error;
 use std::path::Path;
+use thiserror::Error;
 
 mod model;
 mod route;
 
 /*
-Function: run
-Description: Generate code artifacts into OUT_DIR using sources under manifest/src.
-Params:
-- manifest_dir: Path string to crate manifest directory.
-- out_dir: Path string to Cargo OUT_DIR.
-Returns: Result<(), anyhow::Error>.
-Exceptions: IO errors, missing directories.
-Complexity: O(F) where F is number of files scanned.
-Usage: generator::run(&manifest_dir, &out_dir)?;
+
 中文说明：扫描 api 与 model 目录，生成路由注册与打印函数、模块树、模型接口实现，写入 OUT_DIR。
 */
 #[derive(Debug, Error)]

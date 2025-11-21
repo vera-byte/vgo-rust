@@ -27,7 +27,7 @@ postgres_backend = ["diesel/postgres"]
 mysql_backend = ["diesel/mysql"]
 
 [dependencies]
-anyhow = "1"
+thiserror = "1"
 tokio = { version = "1", features = ["full"] }
 v = { path = "../v" }
 diesel = { version = "2.1", default-features = false, features = [

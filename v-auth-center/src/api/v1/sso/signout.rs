@@ -1,0 +1,8 @@
+use actix_web::{http, web, Responder};
+
+pub fn register(cfg: &mut actix_web::web::ServiceConfig, path: &str) {
+    cfg.service(web::resource(path).route(web::get().to(sso_signout_handle)));
+}
+pub async fn sso_signout_handle() -> impl Responder {
+    return v::response::respond_any(http::StatusCode::OK, "sso_signout_handle");
+}

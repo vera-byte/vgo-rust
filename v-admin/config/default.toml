@@ -1,0 +1,61 @@
+# 默认配置文件
+[server]
+host = "127.0.0.1"
+port = 3005
+workers = 4
+debug = false
+
+[database]
+# url = "postgresql://user:password@localhost/vgo_rust"
+max_connections = 10
+
+# 多数据库分组示例：default 与 mloss_oil
+[database.default]
+type = "postgresql"
+host = "127.0.0.1"
+port = "5432"
+user = "vgo_rust_master"
+pass = "wRJksJcYWsRBbhHw"
+name = "vgo_rust_master"
+charset = "utf8mb4"
+timezone = "Asia/Shanghai"
+maxOpen = 10
+
+[database.test]
+type = "postgresql"
+host = "127.0.0.1"
+port = "5432"
+user = "vgo_rust_master"
+pass = "wRJksJcYWsRBbhHw"
+name = "vgo_rust_master"
+charset = "utf8mb4"
+timezone = "Asia/Shanghai"
+maxOpen = 100
+
+[sa_token]
+storage = "redis"
+token_name = "Authorization"
+timeout_seconds = 7200
+token_style = "tik"
+[sa_token.redis]
+url = "redis://127.0.0.1:6379/0"
+prefix = "sa_token:"
+
+
+[logging]
+level = "info"
+json_format = false
+
+[jwt]
+# secret = "your-secret-key-here"
+expiration = 3600
+
+[rate_limit]
+requests_per_minute = 60
+
+[cors]
+allowed_origins = ["*"]
+
+
+[cache]
+ttl_seconds = 300

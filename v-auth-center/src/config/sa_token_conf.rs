@@ -1,10 +1,4 @@
 /*
-文件(File): v-auth-center/src/config/sa_token_conf.rs
-用途(Purpose): 初始化 Sa-Token 配置并选择存储后端(Redis/内存)，提供统一的可复用初始化入口。
-作者(Author): System
-日期(Date): 2025-11-17
-版权(Copyright): © VGO Project. All rights reserved.
-
 模块说明(Module Description):
 - 中文: 读取配置，映射令牌样式与参数，依据显式传入的 Redis 配置或 `sa_token.storage` 决定使用 RedisStorage 或 MemoryStorage。
 - English: Reads configuration, maps token style and parameters, and chooses RedisStorage or MemoryStorage based on explicit Redis config or `sa_token.storage`.
@@ -19,6 +13,8 @@ use sa_token_plugin_actix_web::{
 };
 use serde::Deserialize;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::time::timeout;
 use v::get_global_config_manager;
 
 /// Redis配置 / Redis Configuration
@@ -120,18 +116,21 @@ fn map_token_style(s: &str) -> TokenStyle {
 async fn build_storage(storage_type: &str) -> SaResult<Arc<dyn SaStorage>> {
     let redis_config = v::get_config_safe::<RedisConfig>("redis").ok();
     if let Some(rc) = redis_config {
-        match RedisStorage::new(
-            &rc.url,
-            rc.prefix.clone().unwrap_or_else(|| "sa_token:".to_string()),
-        )
-        .await
-        {
-            Ok(rs) => {
+        let prefix = rc.prefix.clone().unwrap_or_else(|| "sa_token:".to_string());
+        match timeout(Duration::from_secs(1), RedisStorage::new(&rc.url, prefix)).await {
+            Ok(Ok(rs)) => {
                 tracing::info!("Using Redis storage: {}", rc.url);
                 Ok(Arc::new(rs))
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 tracing::warn!("Redis init failed, falling back to memory storage: {}", e);
+                Ok(Arc::new(MemoryStorage::new()))
+            }
+            Err(_) => {
+                tracing::warn!(
+                    "Redis init timeout, falling back to memory storage: {}",
+                    rc.url
+                );
                 Ok(Arc::new(MemoryStorage::new()))
             }
         }
@@ -140,13 +139,20 @@ async fn build_storage(storage_type: &str) -> SaResult<Arc<dyn SaStorage>> {
         let mgr = get_global_config_manager()?;
         let url: String = mgr.get_or("sa_token.redis.url", "redis://127.0.0.1/".to_string());
         let prefix: String = mgr.get_or("sa_token.redis.prefix", "sa_token:".to_string());
-        match RedisStorage::new(&url, prefix).await {
-            Ok(rs) => {
+        match timeout(Duration::from_secs(1), RedisStorage::new(&url, prefix)).await {
+            Ok(Ok(rs)) => {
                 tracing::info!("Using Redis storage: {}", url);
                 Ok(Arc::new(rs))
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 tracing::warn!("Redis init failed, falling back to memory storage: {}", e);
+                Ok(Arc::new(MemoryStorage::new()))
+            }
+            Err(_) => {
+                tracing::warn!(
+                    "Redis init timeout, falling back to memory storage: {}",
+                    url
+                );
                 Ok(Arc::new(MemoryStorage::new()))
             }
         }
