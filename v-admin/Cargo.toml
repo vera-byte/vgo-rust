@@ -13,7 +13,9 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
+validator = { version = "0.20.0", features = ["derive"] }
+# 验证码
+captcha-rs = "0.2.11"
 [build-dependencies]
 v = { path = "../v" }
 

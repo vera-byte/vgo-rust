@@ -6,6 +6,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 pub fn generate_api_artifacts(manifest_dir: &str, out_dir: &str) -> Result<(), GenError> {
+    let crate_root = std::env::var("CARGO_PKG_NAME").unwrap_or_else(|_| "crate".to_string()).replace('-', "_");
     let api_root = Path::new(manifest_dir).join("src").join("api");
     let mut entries: Vec<(String, PathBuf, bool)> = Vec::new();
     if api_root.exists() { collect_apis(&api_root, &api_root, &mut entries); }
@@ -17,7 +18,7 @@ pub fn generate_api_artifacts(manifest_dir: &str, out_dir: &str) -> Result<(), G
     for (route, path, has_register) in entries.iter() {
         let abs = Path::new(manifest_dir).join("src").join("api").join(path);
         println!("cargo:rerun-if-changed=src/api/{}", escape_path(path));
-        let module_path = to_module_path(path);
+        let module_path = to_module_path(path, &crate_root);
         if *has_register { registry_code.push_str(&format!("    {}::register(cfg, \"{}\");\n", module_path, route)); }
         else {
             registry_code.push_str(&format!("    cfg.service(actix_web::web::resource(\"{}\").to(__stub));\n", route));
@@ -31,7 +32,7 @@ pub fn generate_api_artifacts(manifest_dir: &str, out_dir: &str) -> Result<(), G
 
     let mut rows: Vec<(String, String, String, String, String)> = Vec::new();
     for (route, path, _has_register) in entries.iter() {
-        let module_path = to_module_path(path);
+        let module_path = to_module_path(path, &crate_root);
         let file_rel = escape_path(path);
         let abs = Path::new(manifest_dir).join("src").join("api").join(path);
         let file_str = fs::read_to_string(&abs).unwrap_or_default();
@@ -123,7 +124,7 @@ fn emit_dir(out: &mut String, dir: &PathBuf, dirs: &BTreeMap<PathBuf, Vec<PathBu
     for f in children_files { if let Some(stem) = f.file_stem().and_then(|s| s.to_str()) { let p = format!("/src/api/{}", escape_path(&f)); out.push_str(&format!("    pub mod {} {{ include!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"{}\")); }}\n", stem, p)); } }
 }
 
-fn to_module_path(p: &PathBuf) -> String { let mut parts: Vec<String> = vec!["v_auth_center".to_string(), "api".to_string()]; for c in p.components() { if let std::path::Component::Normal(os) = c { parts.push(os.to_string_lossy().replace(".rs", "")); } } parts.join("::") }
+fn to_module_path(p: &PathBuf, crate_root: &str) -> String { let mut parts: Vec<String> = vec![crate_root.to_string(), "api".to_string()]; for c in p.components() { if let std::path::Component::Normal(os) = c { parts.push(os.to_string_lossy().replace(".rs", "")); } } parts.join("::") }
 
 fn detect_methods(s: &str) -> Vec<String> { let mut m = Vec::new(); for (needle, name) in [("web::get()", "GET"), ("web::post()", "POST"), ("web::put()", "PUT"), ("web::delete()", "DELETE"), ("web::patch()", "PATCH")] { if s.contains(needle) { m.push(name.to_string()); } } m }
 

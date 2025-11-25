@@ -4,9 +4,11 @@ use tokio::sync::RwLock;
 
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{Pool, Postgres};
+use async_trait::async_trait;
 
 use crate::comm::config::get_global_config_manager;
 use crate::db::error::{DbError, Result};
+use crate::{HealthCheck, HealthStatus};
 
 lazy_static::lazy_static! {
     static ref POOLS: RwLock<HashMap<String, Pool<Postgres>>> = RwLock::new(HashMap::new());
@@ -61,6 +63,9 @@ async fn build_pool(group: &str) -> Result<Pool<Postgres>> {
 
     let pool = PgPoolOptions::new()
         .max_connections(max_open)
+        .min_connections(1)
+        .max_lifetime(Some(Duration::from_secs(1800)))
+        .idle_timeout(Some(Duration::from_secs(300)))
         .acquire_timeout(Duration::from_secs(3))
         .connect(&url)
         .await
@@ -89,6 +94,31 @@ pub async fn check_health(pool: &Pool<Postgres>) -> Result<()> {
         .await
         .map(|_| ())
         .map_err(DbError::from)
+}
+
+/// 为 PostgreSQL 连接池实现通用健康检查接口
+/// Implement generic HealthCheck interface for PostgreSQL pool
+#[async_trait]
+impl HealthCheck for Pool<Postgres> {
+    async fn check_health(&self) -> HealthStatus {
+        // 执行轻量查询以验证连接
+        // Run a lightweight query to validate connectivity
+        let res = sqlx::query("SELECT 1").execute(self).await;
+        match res {
+            Ok(_) => HealthStatus {
+                component: "postgres_pool".to_string(),
+                healthy: true,
+                message: Some("OK".to_string()),
+                timestamp: chrono::Utc::now(),
+            },
+            Err(e) => HealthStatus {
+                component: "postgres_pool".to_string(),
+                healthy: false,
+                message: Some(format!("SQLx error: {}", e)),
+                timestamp: chrono::Utc::now(),
+            },
+        }
+    }
 }
 
 /// 开启事务 / Begin transaction

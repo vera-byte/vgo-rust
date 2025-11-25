@@ -1,5 +1,5 @@
 use actix_web::middleware::Logger;
-use actix_web::{App, HttpServer, web};
+use actix_web::{App, HttpServer};
 use thiserror::Error;
 use tracing::info;
 use v::db::connection::{check_health, get_pool};
@@ -31,7 +31,7 @@ async fn main() -> Result<(), AppError> {
 
     let addr = format!("{}:{}", host, port);
     // 打印路由信息 / Print route information
-    api_registry::print_routes(&addr, &["Logger", "SaTokenMiddleware"]);
+    api_registry::print_routes(&addr, &["Logger"]);
     info!(
         "starting {} v{} on {}-{}",
         env!("CARGO_PKG_NAME"),
@@ -39,21 +39,23 @@ async fn main() -> Result<(), AppError> {
         std::env::consts::OS,
         std::env::consts::ARCH
     );
-    let server = HttpServer::new(move || {
+    let server_builder = HttpServer::new(move || {
         App::new()
             .wrap(Logger::default())
             .configure(api_registry::configure)
-    });
+    })
+    .bind(addr.clone())?;
 
-    let server = if let Some(w) = workers {
+    let server_builder = if let Some(w) = workers {
         if w > 0 {
-            server.workers(w as usize)
+            server_builder.workers(w as usize)
         } else {
-            server
+            server_builder
         }
     } else {
-        server
+        server_builder
     };
+    let server = server_builder.shutdown_timeout(5).run();
 
     let pool = get_pool("default").await?;
     let _ = check_health(&pool).await?;
@@ -64,6 +66,12 @@ async fn main() -> Result<(), AppError> {
         addr,
         workers.unwrap_or(0)
     );
-    server.bind(addr)?.run().await?;
+
+    let handle = server.handle();
+    tokio::spawn(async move {
+        let _ = tokio::signal::ctrl_c().await;
+        handle.stop(true).await;
+    });
+    server.await?;
     Ok(())
 }

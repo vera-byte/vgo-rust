@@ -1,7 +1,7 @@
 # 默认配置文件
 [server]
 host = "127.0.0.1"
-port = 3005
+port = 3006
 workers = 4
 debug = false
 

@@ -1,0 +1,38 @@
+
+[package]
+name = "v-connect-im"
+version = "0.1.0"
+edition = "2021"
+description = "A high-performance instant messaging server with WebSocket and HTTP support"
+authors = ["v-connect-im team"]
+
+[features]
+# 兼容 rust-analyzer 传入的工作区特性（不改变本包行为）
+# Compatible with workspace features passed by rust-analyzer (no-op in this crate)
+default = []
+postgres_backend = []
+web_actix = []
+
+[dependencies]
+tokio = { version = "1.0", features = ["full"] }
+tokio-tungstenite = "0.20"
+futures-util = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+clap = { version = "4.0", features = ["derive"] }
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+dashmap = "5.5"
+uuid = { version = "1.0", features = ["v4"] }
+chrono = "0.4"
+actix-web = "4"
+reqwest = { version = "0.11", features = ["json"] }
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+v = { path = "../v" }
+async-trait = "0.1"
+
+[build-dependencies]
+v = { path = "../v" }

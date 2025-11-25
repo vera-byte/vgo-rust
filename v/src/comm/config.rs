@@ -1,4 +1,5 @@
 use config::{Config, ConfigBuilder, Environment, File, FileFormat};
+use tracing::info;
 use lazy_static::lazy_static;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
@@ -243,27 +244,22 @@ impl ConfigManager {
     /// 打印配置源详细信息
     #[allow(dead_code)]
     pub fn print_sources_info(&self) {
-        println!("配置源信息:");
-        println!("============");
+        info!("配置源信息:");
+        info!("============");
         for (index, info) in self.sources_info.iter().enumerate() {
-            let status = if info.loaded {
-                "✓ 已加载"
-            } else {
-                "✗ 失败"
-            };
-            println!(
+            let status = if info.loaded { "✓ 已加载" } else { "✗ 失败" };
+            info!(
                 "{}. {} - {} (优先级: {})",
                 index + 1,
                 info.source_type,
                 status,
                 info.priority
             );
-            println!("   描述: {}", info.description);
-            println!();
+            info!("   描述: {}", info.description);
         }
 
         let (total, loaded, failed) = self.get_sources_stats();
-        println!(
+        info!(
             "统计: 总计 {} 个配置源，成功 {} 个，失败 {} 个",
             total, loaded, failed
         );
@@ -433,6 +429,23 @@ pub fn get_global_config_manager() -> Result<Arc<ConfigManager>> {
             Ok(Arc::clone(manager.as_ref().unwrap()))
         }
     }
+}
+
+/// 使用指定配置文件初始化全局配置管理器（会覆盖已有实例）
+/// Initialize global config manager with a specific file (overrides existing instance)
+pub fn init_global_config_with_file(path: &str) -> Result<()> {
+    let manager = ConfigManager::with_sources(vec![ConfigSource::File {
+        path: path.to_string(),
+        format: None, // 自动检测格式 / auto-detect format
+        required: true,
+    }])?;
+    let mut global = GLOBAL_CONFIG_MANAGER
+        .write()
+        .map_err(|e| ConfigError::InitializationError {
+            message: format!("获取全局配置管理器写锁失败: {}", e),
+        })?;
+    *global = Some(Arc::new(manager));
+    Ok(())
 }
 
 /// 全局配置获取函数（使用单例）

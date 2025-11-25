@@ -1,5 +1,5 @@
 use crate::service::oauth2_service::OAuth2Server;
-use actix_web::{web, Responder};
+use actix_web::{http, web, Responder};
 use serde::Deserialize;
 use v::response;
 use validator::Validate;
@@ -46,13 +46,13 @@ pub struct OAuth2AuthorizeHandleReq {
 pub async fn oauth2_authorize_handle(path: web::Query<OAuth2AuthorizeHandleReq>) -> impl Responder {
     // 参数校验 / Validate request params
     if let Err(e) = path.validate() {
-        return response::respond_any(actix_web::http::StatusCode::BAD_REQUEST, format!("{}", e));
+        return response::respond_any(http::StatusCode::BAD_REQUEST, format!("{}", e));
     }
     let query = path.into_inner();
     // 仅支持 Authorization Code 流程 / Only support Authorization Code flow
     if query.response_type.to_lowercase() != "code" {
         return response::respond_any(
-            actix_web::http::StatusCode::BAD_REQUEST,
+            http::StatusCode::BAD_REQUEST,
             "response_type 必须为 'code' / response_type must be 'code'",
         );
     }
@@ -63,7 +63,7 @@ pub async fn oauth2_authorize_handle(path: web::Query<OAuth2AuthorizeHandleReq>)
         query.redirect_uri.clone(),
         query.state.clone().unwrap_or_default(),
     )
-        .await
+    .await
     {
         Ok(auth) => {
             // 构建重定向URL
@@ -75,16 +75,14 @@ pub async fn oauth2_authorize_handle(path: web::Query<OAuth2AuthorizeHandleReq>)
             let is_redirect = query.is_redirect.unwrap_or(true);
             if is_redirect {
                 // 重定向到授权码回调URL / Redirect to callback with code
-                return v::response::respond_any(actix_web::http::StatusCode::FOUND, redirect_url);
+                return v::response::respond_any(http::StatusCode::FOUND, redirect_url);
             }
             // 返回授权码 / Return authorization code payload
-            v::response::respond_any(actix_web::http::StatusCode::OK, auth)
+            v::response::respond_any(http::StatusCode::OK, auth)
         }
-        Err(e) => {
-            response::respond_any(
-                actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
-                format!("OAuth2 authorization failed: {}", e),
-            )
-        }
+        Err(e) => response::respond_any(
+            http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("OAuth2 authorization failed: {}", e),
+        ),
     };
 }

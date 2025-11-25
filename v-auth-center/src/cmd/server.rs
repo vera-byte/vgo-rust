@@ -9,6 +9,7 @@ mod api_registry {
     include!(concat!(env!("OUT_DIR"), "/api_registry.rs"));
 }
 
+
 #[derive(Debug, Error)]
 enum AppError {
     #[error("配置错误: {0}")]
@@ -60,23 +61,17 @@ async fn main() -> Result<(), AppError> {
     // 打印路由信息 / Print route information
     api_registry::print_routes(&addr, &["Logger", "SaTokenMiddleware"]);
 
-    let server = HttpServer::new(move || {
+    let server_builder = HttpServer::new(move || {
         App::new()
-            .app_data(sa_token_data.clone()) // 注入 Sa-Token 到应用状态 / Inject Sa-Token into application state
+            .app_data(sa_token_data.clone())
             .wrap(SaTokenMiddleware::new(sa_token_state.clone()))
             .wrap(Logger::default())
             .configure(api_registry::configure)
-    });
+    })
+    .bind(addr.clone())?;
 
-    let server = if let Some(w) = workers {
-        if w > 0 {
-            server.workers(w as usize)
-        } else {
-            server
-        }
-    } else {
-        server
-    };
+    let server_builder = if let Some(w) = workers { if w > 0 { server_builder.workers(w as usize) } else { server_builder } } else { server_builder };
+    let server = server_builder.shutdown_timeout(5).run();
 
     let pool = get_pool("default").await?;
     let _ = check_health(&pool).await?;
@@ -87,6 +82,11 @@ async fn main() -> Result<(), AppError> {
         addr,
         workers.unwrap_or(0)
     );
-    server.bind(addr)?.run().await?;
+    let handle = server.handle();
+    tokio::spawn(async move {
+        let _ = tokio::signal::ctrl_c().await;
+        handle.stop(true).await;
+    });
+    server.await?;
     Ok(())
 }

@@ -1,3 +1,3 @@
 [workspace]
-members = ["v", "v-auth-center", "examples", "v-admin"]
+members = ["v", "v-auth-center", "examples", "v-admin", "v-connect-im"]
 resolver = "2"

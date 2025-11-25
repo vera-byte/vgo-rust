@@ -1,0 +1,18 @@
+[server]
+host = "0.0.0.0"
+ws_port = 5200
+http_port = 8080
+timeout_ms = 20000
+
+[logging]
+level = "info"
+json_format = false
+
+[webhook]
+enabled = false
+url = "https://example.com/webhook"
+timeout_ms = 3000000
+secret = "xxx"
+
+[amap]
+key = "f18fcb3090a46d91b99c81d4aa71b4e3"
