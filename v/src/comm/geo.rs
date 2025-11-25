@@ -114,13 +114,23 @@ pub async fn get_region_by_ip(ip: Option<&str>) -> Result<RegionInfo, GeoError> 
     }
 
     // 调用高德 IP 定位 / Call Amap IP API
+    // 高德可能返回字符串或数组（例如 city: []），使用多态解析
+    // Amap may return string or array (e.g., city: []), use untagged parsing
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum TextOrArray {
+        Text(String),
+        Array(Vec<String>),
+        Null,
+    }
+
     #[derive(Deserialize)]
     struct AmapIpResp {
         status: String,
         info: Option<String>,
-        province: Option<String>,
-        city: Option<String>,
-        adcode: Option<String>,
+        province: Option<TextOrArray>,
+        city: Option<TextOrArray>,
+        adcode: Option<TextOrArray>,
     }
     let url = format!("https://restapi.amap.com/v3/ip?ip={}&key={}", ip_val, key);
     let resp = reqwest::Client::new()
@@ -141,12 +151,32 @@ pub async fn get_region_by_ip(ip: Option<&str>) -> Result<RegionInfo, GeoError> 
         ));
     }
 
+    // 提取文本值（优先取第一个元素）
+    // Extract text value (prefer first element)
+    fn to_opt_string(v: Option<TextOrArray>) -> Option<String> {
+        match v {
+            Some(TextOrArray::Text(s)) => {
+                if s.is_empty() {
+                    None
+                } else {
+                    Some(s)
+                }
+            }
+            Some(TextOrArray::Array(arr)) => arr.into_iter().find(|s| !s.is_empty()),
+            _ => None,
+        }
+    }
+
+    let province_str = to_opt_string(ip_data.province);
+    let city_str = to_opt_string(ip_data.city);
+    let adcode_str = to_opt_string(ip_data.adcode);
+
     let mut region = RegionInfo {
         ip: Some(ip_val),
-        province: ip_data.province.clone(),
-        city: ip_data.city.clone(),
+        province: province_str,
+        city: city_str,
         district: None,
-        adcode: ip_data.adcode.clone(),
+        adcode: adcode_str,
     };
 
     // 若返回了 adcode，尝试解析区县名称 / If adcode present, try resolve district name

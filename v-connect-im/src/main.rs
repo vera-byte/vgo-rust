@@ -666,6 +666,15 @@ impl VConnectIMServer {
                                 let auth_json = serde_json::to_string(&auth_response)?;
                                 self.send_message_to_client(client_id, Message::Text(auth_json))
                                     .await?;
+
+                                // 写入连接的 uid（若提供） / persist uid to connection if provided
+                                if let Some(uid_val) =
+                                    wk_msg.data.get("uid").and_then(|v| v.as_str())
+                                {
+                                    if let Some(mut conn) = self.connections.get_mut(client_id) {
+                                        conn.uid = Some(uid_val.to_string());
+                                    }
+                                }
                             }
                             "message" => {
                                 info!("💬 Message from {}: {:?}", client_id, wk_msg.data);
