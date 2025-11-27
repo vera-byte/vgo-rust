@@ -1,3 +1,7 @@
+use crate::plugins::{
+    bridge::HttpBridgePlugin, sensitive::SensitiveWordPlugin, trace::TracePlugin, PluginContext,
+    PluginFlow,
+};
 use actix_web::dev::Service;
 use actix_web::{web, App, HttpServer};
 use anyhow::Result;
@@ -26,6 +30,7 @@ mod cluster;
 mod config;
 mod domain;
 mod net;
+mod plugins;
 mod router;
 mod server;
 mod service;
@@ -380,6 +385,20 @@ impl VConnectIMServer {
 
         info!("✅ Client {} connected from {}", client_id, peer_addr);
 
+        // 触发连接建立事件 / Emit connection established event
+        let conn_event = serde_json::json!({
+            "client_id": client_id,
+            "addr": peer_addr.to_string(),
+            "timestamp": chrono::Utc::now().timestamp_millis(),
+        });
+        if let Err(e) = server
+            .plugin_registry
+            .emit_custom("connection.established", &conn_event)
+            .await
+        {
+            warn!("plugin connection.established event error: {}", e);
+        }
+
         // 发送客户端上线Webhook事件 / Send client online webhook event
         service::webhook::send_client_online_webhook(&server, &client_id, &None, &peer_addr).await;
         let welcome_text = "Welcome to v-connect-im Server".to_string();
@@ -444,6 +463,20 @@ impl VConnectIMServer {
         send_task.abort();
         info!("👋 Client {} disconnected", client_id);
 
+        // 触发连接关闭事件 / Emit connection closed event
+        let close_event = serde_json::json!({
+            "client_id": client_id,
+            "addr": peer_addr.to_string(),
+            "timestamp": chrono::Utc::now().timestamp_millis(),
+        });
+        if let Err(e) = server
+            .plugin_registry
+            .emit_custom("connection.closed", &close_event)
+            .await
+        {
+            warn!("plugin connection.closed event error: {}", e);
+        }
+
         // 发送客户端离线Webhook事件 / Send client offline webhook event
         if let Some((_, connection)) = connection_info {
             let connected_at = chrono::Utc::now().timestamp_millis()
@@ -463,8 +496,25 @@ impl VConnectIMServer {
             .await;
 
             if let Some(uid) = &connection.uid {
+                let mut is_last_connection = false;
                 if let Some(set) = server.uid_clients.get_mut(uid) {
                     set.remove(&client_id);
+                    is_last_connection = set.is_empty();
+                }
+                // 如果是最后一个连接，触发 user.offline 事件 / Emit user.offline if last connection
+                if is_last_connection {
+                    let event = serde_json::json!({
+                        "uid": uid,
+                        "client_id": client_id,
+                        "timestamp": chrono::Utc::now().timestamp_millis(),
+                    });
+                    if let Err(e) = server
+                        .plugin_registry
+                        .emit_custom("user.offline", &event)
+                        .await
+                    {
+                        warn!("plugin user.offline event error: {}", e);
+                    }
                 }
             }
         }
@@ -489,7 +539,19 @@ impl VConnectIMServer {
 
                 // 尝试解析为JSON消息
                 match serde_json::from_str::<ImMessage>(&text) {
-                    Ok(wk_msg) => {
+                    Ok(mut wk_msg) => {
+                        let ctx = PluginContext::new(self, client_id);
+                        match self.plugin_registry.emit_incoming(&ctx, &mut wk_msg).await {
+                            Ok(PluginFlow::Continue) => {}
+                            Ok(PluginFlow::Stop) => {
+                                debug!("message blocked by plugin for client {}", client_id);
+                                return Ok(());
+                            }
+                            Err(e) => {
+                                error!("plugin incoming error for client {}: {}", client_id, e);
+                                return Err(e);
+                            }
+                        }
                         match wk_msg.msg_type.as_str() {
                             "ping" => {
                                 debug!("🏓 Ping from {}", client_id);
@@ -535,7 +597,10 @@ impl VConnectIMServer {
                                     .get("uid")
                                     .and_then(|v| v.as_str())
                                     .map(|s| s.to_string());
-                                let is_valid = crate::service::auth::validate_token(self, token)
+                                let is_valid = self
+                                    .auth_plugin
+                                    .as_ref()
+                                    .validate(self, token)
                                     .await
                                     .unwrap_or(false);
                                 let auth_response = ImMessage {
@@ -548,10 +613,27 @@ impl VConnectIMServer {
                                     .await?;
                                 if is_valid {
                                     if let Some(uid_val) = uid_opt {
-                                        let _ = crate::service::auth::apply_auth(
-                                            self, client_id, &uid_val,
-                                        )
-                                        .await;
+                                        let _ = self
+                                            .auth_plugin
+                                            .as_ref()
+                                            .apply(self, client_id, &uid_val)
+                                            .await;
+                                        // 触发认证成功事件 / Emit connection authenticated event
+                                        let auth_event = serde_json::json!({
+                                            "client_id": client_id,
+                                            "uid": uid_val,
+                                            "timestamp": chrono::Utc::now().timestamp_millis(),
+                                        });
+                                        if let Err(e) = self
+                                            .plugin_registry
+                                            .emit_custom("connection.authenticated", &auth_event)
+                                            .await
+                                        {
+                                            warn!(
+                                                "plugin connection.authenticated event error: {}",
+                                                e
+                                            );
+                                        }
                                     }
                                 }
                             }
@@ -610,16 +692,35 @@ impl VConnectIMServer {
                                             // 跨节点HTTP/RPC转发（最小版本）/ Cross-node forward via HTTP
                                             let mut ok = false;
                                             if let Ok(cm) = v::get_global_config_manager() {
-                                                let peers = cm.get::<String>("cluster.peers").unwrap_or_default();
-                                                for base in peers.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
-                                                    let list_url = format!("{}/v1/internal/clients_by_uid?uid={}", base, target_uid);
-                                                    if let Ok(resp) = reqwest::get(&list_url).await {
+                                                let peers = cm
+                                                    .get::<String>("cluster.peers")
+                                                    .unwrap_or_default();
+                                                for base in peers
+                                                    .split(',')
+                                                    .map(|s| s.trim())
+                                                    .filter(|s| !s.is_empty())
+                                                {
+                                                    let list_url = format!(
+                                                        "{}/v1/internal/clients_by_uid?uid={}",
+                                                        base, target_uid
+                                                    );
+                                                    if let Ok(resp) = reqwest::get(&list_url).await
+                                                    {
                                                         if resp.status().is_success() {
-                                                            if let Ok(val) = resp.json::<serde_json::Value>().await {
-                                                                let ids = val.get("client_ids").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+                                                            if let Ok(val) = resp
+                                                                .json::<serde_json::Value>()
+                                                                .await
+                                                            {
+                                                                let ids = val
+                                                                    .get("client_ids")
+                                                                    .and_then(|v| v.as_array())
+                                                                    .cloned()
+                                                                    .unwrap_or_default();
                                                                 if !ids.is_empty() {
                                                                     for idv in ids {
-                                                                        if let Some(cid) = idv.as_str() {
+                                                                        if let Some(cid) =
+                                                                            idv.as_str()
+                                                                        {
                                                                             let fwd_url = format!("{}/v1/internal/forward_client", base);
                                                                             let body = serde_json::json!({"client_id": cid, "text": forward_json});
                                                                             if let Ok(res2) = reqwest::Client::new().post(&fwd_url).json(&body).send().await {
@@ -631,10 +732,16 @@ impl VConnectIMServer {
                                                             }
                                                         }
                                                     }
-                                                    if ok { break; }
+                                                    if ok {
+                                                        break;
+                                                    }
                                                 }
                                             }
-                                            if ok { Ok(()) } else { Err(anyhow::anyhow!("uid offline")) }
+                                            if ok {
+                                                Ok(())
+                                            } else {
+                                                Err(anyhow::anyhow!("uid offline"))
+                                            }
                                         };
 
                                         match delivery_result {
@@ -1485,14 +1592,21 @@ async fn start_http_server(server: Arc<VConnectIMServer>, host: String, port: u1
                     )),
             )
             .app_data(web::Data::new(server.clone()))
+            .configure(crate::api::plugins::configure)
             .configure(|cfg| {
                 crate::api::openapi::register(cfg, "/openapi.json");
             })
             // 内部跨节点API / internal cross-node APIs
             .configure(|cfg| {
                 crate::api::v1::internal::has_client::register(cfg, "/v1/internal/has_client");
-                crate::api::v1::internal::forward_client::register(cfg, "/v1/internal/forward_client");
-                crate::api::v1::internal::clients_by_uid::register(cfg, "/v1/internal/clients_by_uid");
+                crate::api::v1::internal::forward_client::register(
+                    cfg,
+                    "/v1/internal/forward_client",
+                );
+                crate::api::v1::internal::clients_by_uid::register(
+                    cfg,
+                    "/v1/internal/clients_by_uid",
+                );
             })
             .configure(crate::router::configure)
     })
@@ -1570,6 +1684,14 @@ async fn main() -> Result<()> {
     let webhook_timeout_ms: u64 = cm.get_or("webhook.timeout_ms", 3000000_i64) as u64;
     let webhook_secret: Option<String> = cm.get::<String>("webhook.secret").ok();
     let webhook_enabled: bool = cm.get_or("webhook.enabled", false);
+    let trace_enabled: bool = cm.get_or("plugins.trace_enabled", 0_i64) == 1;
+    let trace_log_payload: bool = cm.get_or("plugins.trace_log_payload", 0_i64) == 1;
+    let bridge_enabled: bool = cm.get_or("plugins.bridge_enabled", 0_i64) == 1;
+    let bridge_callback_timeout_ms: u64 =
+        cm.get_or("plugins.bridge_callback_timeout_ms", 1000_i64) as u64;
+    let sensitive_words: Vec<String> = cm
+        .get::<Vec<String>>("plugins.sensitive_words")
+        .unwrap_or_default();
 
     // Webhook配置 / Webhook Configuration
     if webhook_enabled && webhook_url.is_some() {
@@ -1622,6 +1744,32 @@ async fn main() -> Result<()> {
         };
         server_builder = server_builder.with_auth_config(auth_cfg);
     }
+    if trace_enabled {
+        info!(
+            "🧩 Trace plugin enabled (payload_log={})",
+            trace_log_payload
+        );
+        server_builder = server_builder.with_plugin(Arc::new(TracePlugin::new(trace_log_payload)));
+    }
+    if bridge_enabled {
+        match HttpBridgePlugin::new(
+            server_builder.remote_plugins.clone(),
+            bridge_callback_timeout_ms,
+        ) {
+            Ok(plugin) => {
+                info!(
+                    "🧩 HTTP bridge plugin enabled (timeout={}ms)",
+                    bridge_callback_timeout_ms
+                );
+                server_builder = server_builder.with_plugin(Arc::new(plugin));
+            }
+            Err(e) => {
+                warn!("failed to init http bridge plugin: {}", e);
+            }
+        }
+    }
+    let sensitive_plugin = Arc::new(SensitiveWordPlugin::new(sensitive_words.clone()));
+    server_builder = server_builder.with_plugin(sensitive_plugin);
     let node_id: String = cm.get_or("server.node_id", "node-local".to_string());
     let directory = Arc::new(cluster::directory::Directory::new());
     let raft_cluster = Arc::new(cluster::raft::RaftCluster::new(
@@ -1632,6 +1780,22 @@ async fn main() -> Result<()> {
     server_builder = server_builder.with_raft(raft_cluster.clone());
     let server = Arc::new(server_builder);
     directory.register_server(&node_id, server.clone());
+    if let Err(e) = server.plugin_registry.emit_startup(server.as_ref()).await {
+        warn!("plugin startup error: {}", e);
+    }
+    let plugin_cfg = serde_json::json!({
+        "plugins": {
+            "trace_enabled": trace_enabled,
+            "trace_log_payload": trace_log_payload,
+            "bridge_enabled": bridge_enabled,
+            "bridge_callback_timeout_ms": bridge_callback_timeout_ms,
+            "sensitive_words": sensitive_words,
+        }
+    });
+    server.set_plugin_config(plugin_cfg.clone());
+    if let Err(e) = server.plugin_registry.emit_config_update(&plugin_cfg).await {
+        warn!("plugin config update error: {}", e);
+    }
 
     // 加载持久化房间成员到内存
     let _ = server.load_rooms_from_storage().await;
@@ -1671,6 +1835,10 @@ async fn main() -> Result<()> {
         _ = http_future => {
             info!("HTTP server stopped");
         }
+    }
+
+    if let Err(e) = server.plugin_registry.emit_shutdown().await {
+        warn!("plugin shutdown error: {}", e);
     }
 
     info!("✅ Server shutdown successfully");

@@ -7,10 +7,18 @@ use crate::domain::message::{
     WebhookMessageData,
 };
 use anyhow::Result;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 // 发送Webhook事件 / Send Webhook Event
 pub async fn send_webhook_event(server: &VConnectIMServer, event_type: WebhookEventType, data: serde_json::Value) {
+    let event_key = format!("webhook.{}", format!("{:?}", event_type).to_lowercase());
+    if let Err(e) = server
+        .plugin_registry
+        .emit_custom(&event_key, &data)
+        .await
+    {
+        warn!("plugin custom event error: {}", e);
+    }
     if let Some(webhook_config) = &server.webhook_config {
         if !webhook_config.enabled { return; }
         let event = WebhookEvent {

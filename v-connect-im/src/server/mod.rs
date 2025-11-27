@@ -1,7 +1,11 @@
 use crate::cluster;
+use crate::plugins::auth::{AuthPlugin, DefaultAuthPlugin};
+use crate::plugins::bridge::RemotePluginManager;
+use crate::plugins::{Plugin, PluginRegistry};
 use crate::storage;
-use anyhow::Result;
 use dashmap::{DashMap, DashSet};
+use parking_lot::RwLock;
+use serde_json::Value;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -23,6 +27,10 @@ pub struct VConnectIMServer {
     pub connections: Arc<DashMap<String, Connection>>, // 客户端连接 / Client connections
     pub webhook_config: Option<crate::config::WebhookConfigLite>, // Webhook配置 / Webhook configuration
     pub auth_config: Option<crate::config::AuthConfigLite>,       // 鉴权配置 / Auth configuration
+    pub auth_plugin: Arc<dyn AuthPlugin>,                         // 授权插件 / Auth plugin
+    pub plugin_registry: Arc<PluginRegistry>, // 通用插件注册中心 / Plugin registry
+    pub remote_plugins: Arc<RemotePluginManager>, // 远程插件管理 / Remote plugin manager
+    pub plugin_config: Arc<RwLock<Value>>,    // 插件配置快照 / Plugin config snapshot
     pub acked_ids: Arc<DashMap<String, DashSet<String>>>, // 已确认消息ID / Acked message IDs per client
     pub node_id: String,                                  // 当前节点ID / Current node ID
     pub directory: Arc<cluster::directory::Directory>,    // 目录服务 / Directory service
@@ -49,10 +57,17 @@ impl VConnectIMServer {
             directory.clone(),
             "node-local".to_string(),
         ));
+        let plugin_registry = Arc::new(PluginRegistry::new());
+        let remote_plugins = Arc::new(RemotePluginManager::new());
+        let auth_plugin: Arc<dyn AuthPlugin> = Arc::new(DefaultAuthPlugin::new());
         Self {
             connections: Arc::new(DashMap::new()),
             webhook_config: None,
             auth_config: None,
+            auth_plugin,
+            plugin_registry,
+            remote_plugins,
+            plugin_config: Arc::new(RwLock::new(Value::Null)),
             acked_ids: Arc::new(DashMap::new()),
             node_id: "node-local".to_string(),
             directory,
@@ -81,6 +96,18 @@ impl VConnectIMServer {
     /// 配置鉴权 / Configure auth
     pub fn with_auth_config(mut self, config: crate::config::AuthConfigLite) -> Self {
         self.auth_config = Some(config);
+        self
+    }
+
+    /// 配置授权插件 / Configure custom auth plugin
+    pub fn with_auth_plugin(mut self, plugin: Arc<dyn AuthPlugin>) -> Self {
+        self.auth_plugin = plugin;
+        self
+    }
+
+    /// 注册通用插件 / Register generic plugin
+    pub fn with_plugin(self, plugin: Arc<dyn Plugin>) -> Self {
+        self.plugin_registry.register(plugin);
         self
     }
 
@@ -130,6 +157,10 @@ impl Clone for VConnectIMServer {
             connections: self.connections.clone(),
             webhook_config: self.webhook_config.clone(),
             auth_config: self.auth_config.clone(),
+            auth_plugin: self.auth_plugin.clone(),
+            plugin_registry: self.plugin_registry.clone(),
+            remote_plugins: self.remote_plugins.clone(),
+            plugin_config: self.plugin_config.clone(),
             acked_ids: self.acked_ids.clone(),
             node_id: self.node_id.clone(),
             directory: self.directory.clone(),
@@ -147,5 +178,15 @@ impl Clone for VConnectIMServer {
             blocked_uids: self.blocked_uids.clone(),
             uid_rate_limits: self.uid_rate_limits.clone(),
         }
+    }
+}
+
+impl VConnectIMServer {
+    pub fn set_plugin_config(&self, value: Value) {
+        *self.plugin_config.write() = value;
+    }
+
+    pub fn get_plugin_config(&self) -> Value {
+        self.plugin_config.read().clone()
     }
 }

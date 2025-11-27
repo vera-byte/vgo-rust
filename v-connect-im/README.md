@@ -1,3 +1,12 @@
+- **插件配置示例**
+  ```toml
+  [plugins]
+  trace_enabled = 1
+  trace_log_payload = 0
+  bridge_enabled = 1
+  bridge_callback_timeout_ms = 1500
+  sensitive_words = ["违禁词", "badword"]
+  ```
 # v-connect-im 即时通讯服务器
 
 v-connect-im 是一个高性能的即时通讯服务器，采用 Rust 语言开发，支持 WebSocket 和 HTTP 双协议，提供完整的实时消息传输解决方案。
@@ -20,6 +29,20 @@ v-connect-im 是一个高性能的即时通讯服务器，采用 Rust 语言开�
 - **心跳检测**：自动 ping/pong 心跳机制
 - **超时清理**：自动清理超时连接
 - **连接状态跟踪**：实时监控客户端在线状态
+
+### 插件系统
+- **统一插件注册中心**：`PluginRegistry` 负责调度上行/下行钩子，并新增 `on_startup / on_config_update / on_shutdown` 生命周期，便于插件在运行期感知配置变化（参考 [WuKongIM 插件生命周期](https://githubim.com/server/plugin/dev.html)）。
+- **授权与敏感词插件**：内置 `DefaultAuthPlugin`、`SensitiveWordPlugin`，支持基础鉴权与敏感词替换，后者可通过 `plugins.sensitive_words` 配置动态更新。
+- **Trace 插件**：通过 `plugins.trace_enabled` 与 `plugins.trace_log_payload` 控制输出，用于调试消息流。
+- **HTTP Bridge 插件**：当 `plugins.bridge_enabled=1` 时启用 `HttpBridgePlugin`，它会向已注册的外部插件转发上下行消息，实现与现有 Go 插件或其他进程的共存（可参考 [WuKongIM/go-pdk](https://github.com/WuKongIM/go-pdk) 与 [WuKongIM/plugins](https://github.com/WuKongIM/plugins) 的实现）。
+- **远程插件交互接口**：
+  - `POST /v1/plugins/register`：外部插件注册并获取 `plugin_id/token`。
+  - `POST /v1/plugins/{plugin_id}/heartbeat`：维持心跳。
+  - `POST /v1/plugins/{plugin_id}/ack`：对服务器派发的事件进行 ACK，保障至少一次投递。
+  - `GET /v1/plugins/{plugin_id}/config?token=...`：拉取当前插件配置快照。
+  - `POST /v1/plugins/{plugin_id}/stop`：主动通知服务器停用插件并释放资源。
+  - `GET /v1/plugins`：查询当前注册插件。
+- HTTP Bridge 插件会以 `POST` 请求回调注册的 `callback_url`，负载包含 `event_id`、`event_type`（如 `message.incoming`、`message.outgoing`、`room.created`、`room.joined`、`room.left`、`webhook.client_online`、`control.config_update`、`control.stop` 等）、`client_id`、`timestamp` 以及对应的数据结构（消息、房间、Webhook、配置状态等）；外部插件处理完成后需调用 ACK 接口反馈结果。
 
 ### Webhook 事件通知
 - **客户端上线/离线事件**：实时通知第三方系统

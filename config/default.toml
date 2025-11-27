@@ -43,7 +43,7 @@ prefix = "sa_token:"
 
 
 [logging]
-level = "info"
+level = "debug"
 json_format = false
 
 [jwt]

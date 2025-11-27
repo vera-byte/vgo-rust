@@ -9,7 +9,7 @@ enable_geo = true
 deadline_ms = 1500
 
 [logging]
-level = "info"
+level = "debug"
 json_format = false
 
 [webhook]
@@ -34,3 +34,10 @@ path = "./data/v-connect-im-node-local"
 
 [cluster]
 peers = ""
+
+[plugins]
+trace_enabled = 0
+trace_log_payload = 0
+bridge_enabled = 1
+bridge_callback_timeout_ms = 1500
+sensitive_words = []

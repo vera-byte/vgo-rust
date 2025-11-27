@@ -1,12 +1,43 @@
 use anyhow::Result;
 use tokio_tungstenite::tungstenite::Message;
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 
+use crate::domain::message::ImMessage;
+use crate::plugins::{PluginContext, PluginFlow};
 use crate::server::VConnectIMServer;
 
 /// 向指定客户端发送消息 / Send message to specific client
 impl VConnectIMServer {
     pub async fn send_message_to_client(&self, client_id: &str, message: Message) -> Result<()> {
+        let mut message = message;
+        if let Message::Text(ref mut text) = message {
+            if let Ok(mut outgoing) = serde_json::from_str::<ImMessage>(text) {
+                let ctx = PluginContext::new(self, client_id);
+                match self
+                    .plugin_registry
+                    .emit_outgoing(&ctx, &mut outgoing)
+                    .await
+                {
+                    Ok(PluginFlow::Continue) => {
+                        *text = serde_json::to_string(&outgoing)?;
+                    }
+                    Ok(PluginFlow::Stop) => {
+                        debug!(
+                            "message suppressed by plugin for client {}",
+                            client_id
+                        );
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        error!(
+                            "plugin outgoing error for client {}: {}",
+                            client_id, e
+                        );
+                        return Err(e);
+                    }
+                }
+            }
+        }
         if let Some(connection) = self.connections.get(client_id) {
             connection.sender.send(message).map_err(|e| anyhow::anyhow!("Failed to send message: {}", e))?;
             debug!("📤 Sent message to client {}", client_id);

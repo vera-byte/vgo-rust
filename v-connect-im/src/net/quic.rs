@@ -180,11 +180,11 @@ impl QuicServer {
                                                         .and_then(|d| d.get("uid"))
                                                         .and_then(|v| v.as_str())
                                                     {
-                                                        let _ = crate::service::auth::apply_auth(
-                                                            &self.server,
-                                                            client_id,
-                                                            uid,
-                                                        )
+                                                        let _ = self
+                                                            .server
+                                                            .auth_plugin
+                                                            .as_ref()
+                                                            .apply(self.server.as_ref(), client_id, uid)
                                                         .await;
                                                         tracing::info!(
                                                             "QUIC auth ok client_id={} uid={}",

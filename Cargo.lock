@@ -4152,6 +4152,7 @@ dependencies = [
  "futures-util",
  "hex",
  "hmac",
+ "parking_lot 0.12.5",
  "quiche",
  "rand 0.8.5",
  "reqwest",
