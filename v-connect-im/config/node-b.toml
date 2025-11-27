@@ -1,9 +1,9 @@
 [server]
 host = "0.0.0.0"
-ws_port = 5200
-http_port = 8080
+ws_port = 5202
+http_port = 8081
 timeout_ms = 200000
-enable_geo = true
+node_id = "node-B"
 
 [auth]
 deadline_ms = 1500
@@ -14,23 +14,19 @@ json_format = false
 
 [webhook]
 enabled = false
-url = "https://example.com/webhook"
+url = ""
 timeout_ms = 3000000
-secret = "xxx"
-
-[amap]
-key = "f18fcb3090a46d91b99c81d4aa71b4e3"
-
+secret = ""
 
 [quic]
 enabled = 1
 host = "0.0.0.0"
-port = 5201
+port = 5203
 tls_cert = "certs/server.crt"
 tls_key = "certs/server.key"
 
 [storage]
-path = "./data/v-connect-im-node-local"
+path = "./data/v-connect-im-node-B"
 
 [cluster]
-peers = ""
+peers = "http://127.0.0.1:8080"

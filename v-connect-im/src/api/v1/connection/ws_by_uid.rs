@@ -13,8 +13,9 @@ pub fn register(cfg: &mut actix_web::web::ServiceConfig, path: &str) {
 }
 
 #[derive(serde::Deserialize)]
-struct QueryUid {
+pub struct QueryUid {
     uid: String,
+    token: Option<String>,
 }
 
 // 通过用户ID获取 WebSocket 连接地址
@@ -31,6 +32,17 @@ pub async fn ws_by_uid_handle(
     let host: String = cm.get_or("server.host", "127.0.0.1".to_string());
     let ws_port: u16 = cm.get_or("server.ws_port", 5200_i64) as u16;
     let base = format!("ws://{}:{}", host, ws_port);
+
+    // 简单鉴权校验（基于 v-auth-center）/ Simple auth check (via v-auth-center)
+    if let Some(token) = &query.token {
+        let ok = server.validate_token(token).await.unwrap_or(false);
+        if !ok {
+            return respond_any(StatusCode::UNAUTHORIZED, serde_json::json!({
+                "code": 401,
+                "message": "invalid token",
+            }));
+        }
+    }
 
     let mut urls = Vec::new();
     for entry in server.connections.iter() {

@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>v-connect-im HTTP API Tester</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif;
+      margin: 20px;
+    }
+
+    h1 {
+      font-size: 20px;
+    }
+
+    .row {
+      margin: 8px 0;
+    }
+
+    input,
+    select,
+    button,
+    textarea {
+      font-size: 14px;
+      padding: 6px;
+    }
+
+    textarea {
+      width: 100%;
+      height: 240px;
+    }
+
+    .label {
+      display: inline-block;
+      min-width: 120px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+  </style>
+</head>
+
+<body>
+  <!-- HTTP API测试页面 / HTTP API testing page -->
+  <h1>v-connect-im HTTP API 测试 / HTTP API Test</h1>
+
+  <div class="grid">
+    <div>
+      <div class="row"><span class="label">Host:</span><input id="host" value="127.0.0.1" /></div>
+      <div class="row"><span class="label">HTTP Port:</span><input id="port" value="8080" /></div>
+      <div class="row"><button id="btnHealth">健康 / Health</button> <button id="btnHealthDetailed">详细健康 / Detailed
+          Health</button></div>
+      <div class="row"><button id="btnReady">就绪 / Ready</button> <button id="btnLive">存活 / Live</button></div>
+      <div class="row"><span class="label">查询WS地址 / WS URLs by UID:</span></div>
+      <div class="row"><span class="label">UID:</span><input id="wsUid" value="uA" /> <span
+          class="label">Token:</span><input id="wsToken" value="token" /></div>
+      <div class="row"><button id="btnWsByUid">查询 / Query</button></div>
+    </div>
+    <div>
+      <div class="row"><span class="label">发送者UID / From UID:</span><input id="fromUid" value="uA" /></div>
+      <div class="row"><span class="label">接收者UID / To UID:</span><input id="toUid" value="uB" /></div>
+      <div class="row"><span class="label">消息内容 / Message JSON:</span></div>
+      <textarea id="messageJson">{"text": "Hello via HTTP"}</textarea>
+      <div class="row"><button id="btnSend">发送 / Send (/v1/message/send)</button> <button id="btnBroadcast">广播 /
+          Broadcast (/v1/message/broadcast)</button></div>
+      <div class="row"><span class="label">房间ID / Room ID:</span><input id="roomId" value="room-1" /></div>
+      <div class="row"><button id="btnGroupSend">群发 / Group Send (/v1/room/send)</button></div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div>
+      <div class="row"><span class="label">离线拉取 / Offline Pull:</span></div>
+      <div class="row"><span class="label">UID:</span><input id="offlineUid" value="uB" /> <span
+          class="label">Limit:</span><input id="offlineLimit" value="100" /></div>
+      <div class="row"><span class="label">Since ts:</span><input id="sinceTs" value="" /> <span class="label">Until
+          ts:</span><input id="untilTs" value="" /></div>
+      <div class="row"><button id="btnOfflinePull">拉取 / Pull (/v1/offline/pull)</button></div>
+    </div>
+    <div>
+      <div class="row"><span class="label">离线确认 / Offline Ack:</span></div>
+      <div class="row"><span class="label">UID:</span><input id="ackUid" value="uB" /></div>
+      <div class="row"><span class="label">消息ID(逗号分隔) / Message IDs:</span><input id="ackIds" value="" /></div>
+      <div class="row"><button id="btnOfflineAck">确认 / Ack (/v1/offline/ack)</button></div>
+    </div>
+  </div>
+
+  <div class="row"><span class="label">响应 / Response:</span></div>
+  <textarea id="resp" readonly></textarea>
+
+  <script>
+    const base = () => `http://${document.getElementById('host').value}:${document.getElementById('port').value}`;
+    const show = async (p, init) => {
+      const el = document.getElementById('resp');
+      el.value += `\n> ${p}\n`;
+      try {
+        const res = await fetch(base() + p, init);
+        const txt = await res.text();
+        el.value += `${res.status} ${res.statusText}\n${txt}\n`;
+      } catch (e) {
+        el.value += `ERROR: ${e}\n`;
+      }
+      el.scrollTop = el.scrollHeight;
+    };
+
+    // 健康检查 / Health checks
+    document.getElementById('btnHealth').onclick = () => show('/health');
+    document.getElementById('btnHealthDetailed').onclick = () => show('/health/detailed');
+    document.getElementById('btnReady').onclick = () => show('/health/ready');
+    document.getElementById('btnLive').onclick = () => show('/health/live');
+
+    // 发送 / Send (/v1/message/send)
+    document.getElementById('btnSend').onclick = () => {
+      const path = '/v1/message/send';
+      const from_uid = document.getElementById('fromUid').value;
+      const to_uid = document.getElementById('toUid').value;
+      let content = {};
+      try { content = JSON.parse(document.getElementById('messageJson').value || '{}'); } catch (e) { return alert('消息JSON不合法 / Invalid message JSON'); }
+      const body = JSON.stringify({ from_uid, to_uid, content, message_type: 'http_message' });
+      show(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+    };
+
+    // 广播 / Broadcast (/v1/message/broadcast)
+    document.getElementById('btnBroadcast').onclick = () => {
+      const path = '/v1/message/broadcast';
+      const from_uid = document.getElementById('fromUid').value;
+      let content = {};
+      try { content = JSON.parse(document.getElementById('messageJson').value || '{}'); } catch (e) { return alert('消息JSON不合法 / Invalid message JSON'); }
+      const body = JSON.stringify({ from_uid, content, message_type: 'http_broadcast' });
+      show(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+    };
+
+    // 房间群发 / Group Send (/v1/room/send)
+    document.getElementById('btnGroupSend').onclick = () => {
+      const path = '/v1/room/send';
+      const room_id = document.getElementById('roomId').value;
+      const from_client_id = document.getElementById('fromUid').value;
+      let content = {};
+      try { content = JSON.parse(document.getElementById('messageJson').value || '{}'); } catch (e) { return alert('消息JSON不合法 / Invalid message JSON'); }
+      const body = JSON.stringify({ room_id, from_client_id, content, message_type: 'group_message' });
+      show(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+    };
+
+    // 离线拉取 / Offline Pull (/v1/offline/pull)
+    document.getElementById('btnOfflinePull').onclick = () => {
+      const uid = document.getElementById('offlineUid').value;
+      const limit = document.getElementById('offlineLimit').value || '100';
+      const since_ts = document.getElementById('sinceTs').value;
+      const until_ts = document.getElementById('untilTs').value;
+      const qs = new URLSearchParams({ uid, limit, ...(since_ts ? { since_ts } : {}), ...(until_ts ? { until_ts } : {}) });
+      show('/v1/offline/pull?' + qs.toString());
+    };
+
+    // 离线确认 / Offline Ack (/v1/offline/ack)
+    document.getElementById('btnOfflineAck').onclick = () => {
+      const uid = document.getElementById('ackUid').value;
+      const ids = (document.getElementById('ackIds').value || '').split(',').map(x => x.trim()).filter(Boolean);
+      const body = JSON.stringify({ uid, message_ids: ids });
+      show('/v1/offline/ack', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+    };
+
+    // 依据UID查询WS地址 / WS URLs by UID (/v1/connection/ws_by_uid)
+    document.getElementById('btnWsByUid').onclick = () => {
+      const uid = document.getElementById('wsUid').value;
+      const token = document.getElementById('wsToken').value;
+      const qs = new URLSearchParams({ uid, token });
+      show('/v1/connection/ws_by_uid?' + qs.toString());
+    };
+  </script>
+</body>
+
+</html>

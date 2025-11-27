@@ -1,6 +1,6 @@
-use crate::{
-    VConnectIMServer,
-    WebhookConfig,
+use crate::server::VConnectIMServer;
+use crate::config::WebhookConfigLite as WebhookConfig;
+use crate::domain::message::{
     WebhookEvent,
     WebhookEventType,
     WebhookClientStatusData,
@@ -31,12 +31,13 @@ pub async fn send_webhook_event(server: &VConnectIMServer, event_type: WebhookEv
 
 // 交付Webhook事件到第三方服务器 / Deliver Webhook Event to Third-party Server
 pub async fn deliver_webhook_event(webhook_config: WebhookConfig, event: WebhookEvent) -> Result<()> {
+    if webhook_config.url.is_none() { return Ok(()); }
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_millis(webhook_config.timeout_ms))
         .build()
         .map_err(|e| anyhow::anyhow!("Failed to build HTTP client: {}", e))?;
 
-    let mut request = client.post(&webhook_config.url).json(&event);
+    let mut request = client.post(webhook_config.url.as_ref().unwrap()).json(&event);
     if let Some(secret) = &webhook_config.secret {
         let signature = generate_webhook_signature(&event, secret);
         request = request.header("X-VConnectIM-Signature", signature);

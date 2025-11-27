@@ -1,5 +1,5 @@
+use crate::server::VConnectIMServer;
 use async_trait::async_trait;
-use crate::VConnectIMServer;
 use v::{HealthCheck, HealthStatus};
 
 // 为 IM 服务实现统一健康检查接口
@@ -13,7 +13,7 @@ impl HealthCheck for VConnectIMServer {
         let healthy = online_count < 10_000;
         let msg = if let Some(cfg) = &self.webhook_config {
             Some(format!(
-                "online={} webhook_enabled={} url={}",
+                "online={} webhook_enabled={} url={:?}",
                 online_count, cfg.enabled, cfg.url
             ))
         } else {

@@ -1,10 +1,11 @@
+use actix_web::dev::Service;
 use actix_web::{web, App, HttpServer};
 use anyhow::Result;
-use async_trait::async_trait; // 异步Trait支持 / Async trait support
 use clap::Parser;
-use dashmap::DashMap;
+use dashmap::{DashMap, DashSet};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
+use std::future::ready;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -20,7 +21,17 @@ include!(concat!(env!("OUT_DIR"), "/auto_mod.rs"));
 // 为生成器提供 crate 别名（2018 edition 兼容写法）
 extern crate self as v_connect_im;
 // 引入服务模块
+// mod app; // 不再使用独立app构建 / not using standalone app builder
+mod cluster;
+mod config;
+mod domain;
+mod net;
+mod router;
+mod server;
 mod service;
+mod storage;
+mod tasks;
+mod ws;
 mod api_registry {
     include!(concat!(env!("OUT_DIR"), "/api_registry.rs"));
 }
@@ -36,272 +47,67 @@ pub struct Args {
     config: Option<String>,
 }
 
-/// 悟空消息结构 / WuKong Message Structure
-/// 支持中英文消息类型 / Supports both Chinese and English message types
-#[derive(Serialize, Deserialize, Debug)]
-pub struct WuKongMessage {
-    #[serde(rename = "type")]
-    msg_type: String,
-    data: serde_json::Value,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    target_id: Option<String>, // 目标客户端ID / Target client ID
-}
+// 已通过 pub use 导入作用域 / imported via pub use above
 
-/// 连接请求 / Connection Request
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ConnectRequest {
-    uid: String,
-    token: String,
-}
-
-/// 连接响应 / Connection Response
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ConnectResponse {
-    status: String,
-    message: String,
-    client_id: String,
-}
-
-/// 在线客户端信息 / Online Client Information
-#[derive(Serialize, Deserialize, Debug)]
-pub struct OnlineClientInfo {
-    client_id: String,
-    uid: Option<String>,
-    addr: String,
-    connected_at: i64,
-    last_heartbeat: i64,
-}
-
-/// 在线客户端列表响应 / Online Clients List Response
-#[derive(Serialize, Deserialize, Debug)]
-pub struct OnlineClientsResponse {
-    clients: Vec<OnlineClientInfo>,
-    total_count: usize,
-}
-
-/// HTTP发送消息请求 / HTTP Send Message Request
-#[derive(Serialize, Deserialize, Debug)]
-pub struct HttpSendMessageRequest {
-    from_client_id: String,       // 发送者客户端ID / Sender client ID
-    to_client_id: String,         // 接收者客户端ID / Receiver client ID
-    content: serde_json::Value,   // 消息内容 / Message content
-    message_type: Option<String>, // 消息类型 / Message type
-}
-
-/// HTTP发送消息响应 / HTTP Send Message Response
-#[derive(Serialize, Deserialize, Debug)]
-pub struct HttpSendMessageResponse {
-    success: bool,              // 是否成功 / Success flag
-    message: String,            // 响应消息 / Response message
-    message_id: Option<String>, // 消息ID / Message ID
-    delivered_at: Option<i64>,  // 送达时间 / Delivery time
-}
-
-/// HTTP广播消息请求 / HTTP Broadcast Message Request
-#[derive(Serialize, Deserialize, Debug)]
-pub struct HttpBroadcastRequest {
-    from_client_id: String,       // 发送者客户端ID / Sender client ID
-    content: serde_json::Value,   // 消息内容 / Message content
-    message_type: Option<String>, // 消息类型 / Message type
-}
-
-/// HTTP广播消息响应 / HTTP Broadcast Message Response
-#[derive(Serialize, Deserialize, Debug)]
-pub struct HttpBroadcastResponse {
-    success: bool,          // 是否成功 / Success flag
-    message: String,        // 响应消息 / Response message
-    delivered_count: usize, // 送达数量 / Delivery count
-}
-
-/// Webhook事件类型 / Webhook Event Types
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(rename_all = "snake_case")]
-enum WebhookEventType {
-    ClientOnline,     // 客户端上线 / Client online
-    ClientOffline,    // 客户端离线 / Client offline
-    MessageSent,      // 消息发送 / Message sent
-    MessageDelivered, // 消息送达 / Message delivered
-    MessageFailed,    // 消息发送失败 / Message failed
-}
-
-/// Webhook事件数据 / Webhook Event Data
-#[derive(Serialize, Deserialize, Debug)]
-pub struct WebhookEvent {
-    event_type: WebhookEventType, // 事件类型 / Event type
-    event_id: String,             // 事件唯一ID / Event unique ID
-    timestamp: i64,               // 事件时间戳（毫秒）/ Event timestamp (milliseconds)
-    data: serde_json::Value,      // 事件数据 / Event data
-    retry_count: Option<u32>,     // 重试次数 / Retry count
-}
-
-/// Webhook配置 / Webhook Configuration
-#[derive(Clone)]
-pub struct WebhookConfig {
-    url: String,            // Webhook URL
-    timeout_ms: u64,        // 超时时间（毫秒）/ Timeout (milliseconds)
-    secret: Option<String>, // 签名密钥 / Signature secret
-    enabled: bool,          // 是否启用 / Whether enabled
-}
-
-/// Webhook客户端状态数据 / Webhook Client Status Data
-#[derive(Serialize, Deserialize, Debug)]
-pub struct WebhookClientStatusData {
-    client_id: String,               // 客户端ID / Client ID
-    uid: Option<String>,             // 用户ID / User ID
-    addr: String,                    // 客户端地址 / Client address
-    connected_at: Option<i64>,       // 连接时间 / Connection time
-    disconnected_at: Option<i64>,    // 断开时间 / Disconnection time
-    online_duration_ms: Option<u64>, // 在线时长（毫秒）/ Online duration (milliseconds)
-}
-
-/// Webhook消息数据 / Webhook Message Data
-#[derive(Serialize, Deserialize, Debug)]
-pub struct WebhookMessageData {
-    message_id: String,           // 消息ID / Message ID
-    from_client_id: String,       // 发送者客户端ID / Sender client ID
-    from_uid: Option<String>,     // 发送者用户ID / Sender user ID
-    to_client_id: Option<String>, // 接收者客户端ID / Receiver client ID
-    to_uid: Option<String>,       // 接收者用户ID / Receiver user ID
-    content: serde_json::Value,   // 消息内容 / Message content
-    message_type: String,         // 消息类型 / Message type
-    timestamp: i64,               // 消息时间戳（毫秒）/ Message timestamp (milliseconds)
-    delivered_at: Option<i64>,    // 送达时间（毫秒）/ Delivery time (milliseconds)
-    delivery_status: String,      // 送达状态 / Delivery status
-}
-
-/// 客户端连接信息 / Client Connection Information
-#[derive(Clone)]
-pub struct Connection {
-    client_id: String,                              // 客户端唯一ID / Client unique ID
-    uid: Option<String>,                            // 用户ID / User ID
-    addr: SocketAddr,                               // 客户端地址 / Client address
-    sender: mpsc::UnboundedSender<Message>,         // 消息发送器 / Message sender
-    last_heartbeat: Arc<std::sync::Mutex<Instant>>, // 最后心跳时间 / Last heartbeat time
-}
-
-/// 服务端全局状态 / Server Global State
-pub struct VConnectIMServer {
-    connections: Arc<DashMap<String, Connection>>, // 客户端连接 / Client connections
-    webhook_config: Option<WebhookConfig>,         // Webhook配置 / Webhook configuration
-}
+// 连接与服务端结构已迁移至 server 模块 / Connection and server structs moved to server module
 
 impl VConnectIMServer {
-    fn new() -> Self {
-        Self {
-            connections: Arc::new(DashMap::new()),
-            webhook_config: None,
-        }
-    }
+    // 构造与配置方法已迁移至 server::VConnectIMServer / Constructors moved to server::VConnectIMServer
 
-    fn with_webhook_config(mut self, config: WebhookConfig) -> Self {
-        self.webhook_config = Some(config);
-        self
-    }
+    // 离线投递与配额已迁移至 service::offline / Offline delivery moved
 
-    /// HTTP发送消息给指定客户端 / HTTP Send message to specific client
-    async fn http_send_message(&self, request: HttpSendMessageRequest) -> HttpSendMessageResponse {
-        let message_id = Uuid::new_v4().to_string();
-        let delivered_at = chrono::Utc::now().timestamp_millis();
+    // 离线投递与配额已迁移至 service::offline / Offline quota moved
 
-        // 构建消息 / Build message
-        let message_type = request
-            .message_type
-            .clone()
-            .unwrap_or_else(|| "http_message".to_string());
-        let wk_msg = WuKongMessage {
-            msg_type: message_type.clone(),
-            data: serde_json::json!({
-                "from": request.from_client_id,
-                "content": request.content,
-                "timestamp": delivered_at,
-                "message_id": &message_id
-            }),
-            target_id: None, // 消息已经指定了目标 / Message already has target
-        };
+    // ACK等待与入离线队列已迁移至 service::delivery / Await ACK or queue offline moved
 
-        // 发送消息 / Send message
-        let forward_json = match serde_json::to_string(&wk_msg) {
-            Ok(json) => json,
-            Err(e) => {
-                return HttpSendMessageResponse {
-                    success: false,
-                    message: format!("Failed to serialize message: {}", e),
-                    message_id: None,
-                    delivered_at: None,
-                };
-            }
-        };
-
-        match self
-            .send_message_to_client(&request.to_client_id, Message::Text(forward_json))
-            .await
-        {
-            Ok(_) => {
-                info!(
-                    "📤 HTTP message sent from {} to {}",
-                    request.from_client_id, request.to_client_id
-                );
-
-                // 发送消息送达Webhook事件 / Send message delivered webhook event
-                self.send_message_webhook(
-                    &message_id,
-                    &request.from_client_id,
-                    &None, // from_uid - would need to be tracked
-                    &Some(request.to_client_id.clone()),
-                    &None, // to_uid - would need to be tracked
-                    &request.content,
-                    &message_type,
-                    "delivered",
-                    Some(delivered_at),
-                )
-                .await;
-
-                HttpSendMessageResponse {
-                    success: true,
-                    message: "Message delivered successfully".to_string(),
-                    message_id: Some(message_id),
-                    delivered_at: Some(delivered_at),
-                }
-            }
-            Err(e) => {
-                warn!("⚠️  Failed to send HTTP message: {}", e);
-
-                // 发送消息失败Webhook事件 / Send message failed webhook event
-                self.send_message_webhook(
-                    &message_id,
-                    &request.from_client_id,
-                    &None,
-                    &Some(request.to_client_id.clone()),
-                    &None,
-                    &request.content,
-                    &message_type,
-                    "failed",
-                    None,
-                )
-                .await;
-
-                HttpSendMessageResponse {
-                    success: false,
-                    message: format!("Failed to deliver message: {}", e),
-                    message_id: Some(message_id),
-                    delivered_at: None,
-                }
+    async fn load_rooms_from_storage(&self) -> Result<usize> {
+        let rooms = self.storage.list_rooms()?;
+        let mut total = 0usize;
+        for rid in rooms {
+            let members = self.storage.list_room_members(&rid)?;
+            let set = self.rooms.entry(rid).or_default();
+            for u in members {
+                set.insert(u);
+                total += 1;
             }
         }
+        Ok(total)
     }
+
+    fn allow_send_to_uid(&self, uid: &str) -> bool {
+        if self.blocked_uids.contains(uid) {
+            return false;
+        }
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        if let Some(mut entry) = self.uid_rate_limits.get_mut(uid) {
+            let (limit, count, window_start) = *entry;
+            if now_ms - window_start >= 1000 {
+                *entry = (limit, 1, now_ms);
+                return true;
+            } else if count < limit {
+                *entry = (limit, count + 1, window_start);
+                return true;
+            } else {
+                return false;
+            }
+        }
+        true
+    }
+
+    // HTTP投递方法已迁移至 service::delivery / HTTP delivery moved to service::delivery
 
     /// HTTP广播消息给所有客户端 / HTTP Broadcast message to all clients
     async fn http_broadcast_message(&self, request: HttpBroadcastRequest) -> HttpBroadcastResponse {
-        let wk_msg = WuKongMessage {
+        let wk_msg = ImMessage {
             msg_type: request
                 .message_type
                 .unwrap_or_else(|| "http_broadcast".to_string()),
             data: serde_json::json!({
-                "from": request.from_client_id,
+                "from": request.from_uid,
                 "content": request.content,
                 "timestamp": chrono::Utc::now().timestamp_millis()
             }),
-            target_id: None,
+            target_uid: None,
         };
 
         let broadcast_json = match serde_json::to_string(&wk_msg) {
@@ -354,17 +160,124 @@ impl VConnectIMServer {
         }
     }
 
+    /// HTTP群发到指定房间 / HTTP send group message to room
+    async fn http_group_send_message(
+        &self,
+        room_id: String,
+        from_client_id: String,
+        content: serde_json::Value,
+        message_type: Option<String>,
+    ) -> HttpBroadcastResponse {
+        let msg_type = message_type.unwrap_or_else(|| "http_group".to_string());
+        let message_id = Uuid::new_v4().to_string();
+        let forward_msg = ImMessage {
+            msg_type: msg_type.clone(),
+            data: serde_json::json!({
+                "from": from_client_id,
+                "room_id": room_id,
+                "content": content,
+                "timestamp": chrono::Utc::now().timestamp_millis(),
+                "message_id": message_id
+            }),
+            target_uid: None,
+        };
+        let forward_json = match serde_json::to_string(&forward_msg) {
+            Ok(s) => s,
+            Err(e) => {
+                return HttpBroadcastResponse {
+                    success: false,
+                    message: format!("Failed to serialize group message: {}", e),
+                    delivered_count: 0,
+                }
+            }
+        };
+
+        let record = storage::MessageRecord {
+            message_id: message_id.clone(),
+            from_client_id: from_client_id.clone(),
+            to_client_id: room_id.clone(),
+            content: content.clone(),
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            msg_type: "group_message".to_string(),
+            room_id: Some(room_id.clone()),
+        };
+        let _ = self.raft.append_entry_as(&self.node_id, &record);
+        let _ = self.storage.append(&record);
+
+        let mut delivered_count = 0usize;
+        let mut offline_uids: Vec<String> = Vec::new();
+        if let Some(set) = self.rooms.get(&room_id) {
+            for uid in set.iter() {
+                let uid = uid.clone();
+                let clients_opt = self.uid_clients.get(&uid);
+                if let Some(clients) = clients_opt {
+                    for cid in clients.iter() {
+                        let cid = cid.clone();
+                        let delivery = if let Some(loc_node) = self.directory.locate_client(&cid) {
+                            if loc_node != self.node_id {
+                                if let Some(remote) = self.directory.get_server(&loc_node) {
+                                    remote
+                                        .send_message_to_client(
+                                            &cid,
+                                            Message::Text(forward_json.clone()),
+                                        )
+                                        .await
+                                } else {
+                                    Err(anyhow::anyhow!("remote node not found"))
+                                }
+                            } else {
+                                self.send_message_to_client(
+                                    &cid,
+                                    Message::Text(forward_json.clone()),
+                                )
+                                .await
+                            }
+                        } else {
+                            self.send_message_to_client(&cid, Message::Text(forward_json.clone()))
+                                .await
+                        };
+                        if delivery.is_ok() {
+                            delivered_count += 1;
+                        }
+                    }
+                } else {
+                    offline_uids.push(uid);
+                }
+            }
+        }
+        for ou in offline_uids {
+            let _ = self.enforce_offline_quota_for_uid(&ou).await;
+            let off = storage::OfflineRecord {
+                message_id: message_id.clone(),
+                from_uid: self
+                    .connections
+                    .get(&from_client_id)
+                    .and_then(|c| c.uid.clone()),
+                to_uid: ou,
+                room_id: Some(room_id.clone()),
+                content: content.clone(),
+                timestamp: chrono::Utc::now().timestamp_millis(),
+                msg_type: msg_type.clone(),
+            };
+            let _ = self.storage.store_offline(&off);
+        }
+
+        HttpBroadcastResponse {
+            success: delivered_count > 0,
+            message: format!("Group message delivered to {} clients", delivered_count),
+            delivered_count,
+        }
+    }
+
     /// 获取在线客户端列表 / Get online clients list
     async fn get_online_clients(&self) -> OnlineClientsResponse {
         let mut clients = Vec::new();
 
         for entry in self.connections.iter() {
-            let client_id = entry.key().clone();
             let connection = entry.value();
 
             if let Ok(last_heartbeat) = connection.last_heartbeat.lock() {
                 clients.push(OnlineClientInfo {
-                    client_id,
                     uid: connection.uid.clone(),
                     addr: connection.addr.to_string(),
                     connected_at: chrono::Utc::now().timestamp_millis(), // 简化处理 / Simplified
@@ -415,27 +328,7 @@ impl VConnectIMServer {
         }
     }
 
-    async fn run(&self, host: String, port: u16) -> Result<()> {
-        let addr = format!("{}:{}", host, port);
-        let listener = TcpListener::bind(&addr).await?;
-        info!("🚀 v-connect-im WebSocket Server starting on {}", addr);
-        info!("📡 Waiting for connections...");
-
-        while let Ok((stream, peer_addr)) = listener.accept().await {
-            let connections = self.connections.clone();
-            let server = self.clone();
-
-            tokio::spawn(async move {
-                if let Err(e) =
-                    Self::handle_connection(stream, peer_addr, connections, server).await
-                {
-                    error!("Connection error from {}: {}", peer_addr, e);
-                }
-            });
-        }
-
-        Ok(())
-    }
+    // run 方法已迁移至 ws::server::run / run method moved to ws::server::run
 
     async fn handle_connection(
         stream: TcpStream,
@@ -458,8 +351,13 @@ impl VConnectIMServer {
         let client_id_clone = client_id.clone();
         let send_task = tokio::spawn(async move {
             while let Some(msg) = rx.recv().await {
+                let is_close = matches!(&msg, Message::Close(_));
                 if let Err(e) = ws_sender.send(msg).await {
                     error!("Failed to send message to {}: {}", client_id_clone, e);
+                    break;
+                }
+                if is_close {
+                    let _ = ws_sender.close().await;
                     break;
                 }
             }
@@ -476,18 +374,20 @@ impl VConnectIMServer {
 
         // 存储连接
         connections.insert(client_id.clone(), connection);
+        server
+            .directory
+            .register_client_location(&client_id, &server.node_id);
 
         info!("✅ Client {} connected from {}", client_id, peer_addr);
 
         // 发送客户端上线Webhook事件 / Send client online webhook event
         service::webhook::send_client_online_webhook(&server, &client_id, &None, &peer_addr).await;
-        let location = v::comm::geo::get_region_by_ip(None).await?;
+        let welcome_text = "Welcome to v-connect-im Server".to_string();
 
-        // 发送欢迎消息
+        // 发送欢迎消息 / Send welcome message
         let welcome_msg = ConnectResponse {
             status: "connected".to_string(),
-            message: format!("Welcome to v-connect-im Server, location: {:?}", location),
-            client_id: client_id.clone(),
+            message: welcome_text,
         };
 
         server
@@ -496,6 +396,30 @@ impl VConnectIMServer {
                 Message::Text(serde_json::to_string(&welcome_msg)?),
             )
             .await?;
+
+        // 授权看门狗：连接后必须在deadline内鉴权，否则踢出 / Auth watchdog: require auth within deadline or disconnect
+        let auth_deadline_ms: u64 = v::get_global_config_manager()
+            .ok()
+            .map(|cm| cm.get_or("auth.deadline_ms", 1000_u64))
+            .unwrap_or(1000);
+        {
+            let watchdog_client = client_id.clone();
+            let watchdog_connections = connections.clone();
+            let watchdog_server = server.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(auth_deadline_ms)).await;
+                if let Some(conn) = watchdog_connections.get(&watchdog_client) {
+                    if conn.uid.is_none() {
+                        let _ = watchdog_server.send_close_message(&watchdog_client).await;
+                        watchdog_connections.remove(&watchdog_client);
+                        tracing::warn!(
+                            "disconnecting unauthenticated client_id={}",
+                            watchdog_client
+                        );
+                    }
+                }
+            });
+        }
 
         // 处理来自该客户端的消息
         while let Some(msg) = ws_receiver.next().await {
@@ -537,72 +461,18 @@ impl VConnectIMServer {
                 connected_at,
             )
             .await;
-        }
 
-        Ok(())
-    }
-
-    // 向指定客户端发送消息
-    async fn send_message_to_client(&self, client_id: &str, message: Message) -> Result<()> {
-        if let Some(connection) = self.connections.get(client_id) {
-            connection
-                .sender
-                .send(message)
-                .map_err(|e| anyhow::anyhow!("Failed to send message: {}", e))?;
-            debug!("📤 Sent message to client {}", client_id);
-            Ok(())
-        } else {
-            warn!("⚠️  Client {} not found for message delivery", client_id);
-            Err(anyhow::anyhow!("Client {} not found", client_id))
-        }
-    }
-
-    // 发送关闭消息给客户端 / Send close message to client
-    async fn send_close_message(&self, client_id: &str) -> Result<()> {
-        if let Some(connection) = self.connections.get(client_id) {
-            // 发送WebSocket关闭帧 / Send WebSocket close frame
-            connection
-                .sender
-                .send(Message::Close(Some(tokio_tungstenite::tungstenite::protocol::CloseFrame {
-                    code: tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Normal,
-                    reason: std::borrow::Cow::Borrowed("Connection timeout"),
-                })))
-                .map_err(|e| anyhow::anyhow!("Failed to send close message: {}", e))?;
-            debug!("🔒 Sent close message to client {}", client_id);
-            Ok(())
-        } else {
-            Err(anyhow::anyhow!(
-                "Client {} not found for close message",
-                client_id
-            ))
-        }
-    }
-
-    // 广播消息给所有客户端
-    async fn broadcast_message(&self, message: Message) -> Result<()> {
-        let message_str = match &message {
-            Message::Text(text) => text.clone(),
-            _ => return Ok(()),
-        };
-
-        let mut disconnected_clients = Vec::new();
-
-        for entry in self.connections.iter() {
-            let client_id = entry.key().clone();
-            let connection = entry.value();
-
-            if let Err(_) = connection.sender.send(Message::Text(message_str.clone())) {
-                disconnected_clients.push(client_id);
+            if let Some(uid) = &connection.uid {
+                if let Some(set) = server.uid_clients.get_mut(uid) {
+                    set.remove(&client_id);
+                }
             }
         }
 
-        // 移除断开的客户端
-        for client_id in disconnected_clients {
-            self.connections.remove(&client_id);
-        }
-
         Ok(())
     }
+
+    // 发送/关闭/广播方法已迁移至 ws::sender / send/close/broadcast moved to ws::sender
 
     async fn handle_incoming_message(
         &self,
@@ -618,7 +488,7 @@ impl VConnectIMServer {
                 debug!("📨 Received text from {}: {}", client_id, text);
 
                 // 尝试解析为JSON消息
-                match serde_json::from_str::<WuKongMessage>(&text) {
+                match serde_json::from_str::<ImMessage>(&text) {
                     Ok(wk_msg) => {
                         match wk_msg.msg_type.as_str() {
                             "ping" => {
@@ -626,13 +496,13 @@ impl VConnectIMServer {
                                 // 更新心跳时间 / Update heartbeat time
                                 self.update_heartbeat(client_id).await;
 
-                                let pong_msg = WuKongMessage {
+                                let pong_msg = ImMessage {
                                     msg_type: "pong".to_string(),
                                     data: serde_json::json!({
                                         "timestamp": chrono::Utc::now().timestamp_millis(),
                                         "client_id": client_id
                                     }),
-                                    target_id: None,
+                                    target_uid: None,
                                 };
                                 let pong_json = serde_json::to_string(&pong_msg)?;
                                 self.send_message_to_client(client_id, Message::Text(pong_json))
@@ -641,10 +511,10 @@ impl VConnectIMServer {
                             "online_clients" => {
                                 info!("📋 Online clients query from {}", client_id);
                                 let online_clients = self.get_online_clients().await;
-                                let response_msg = WuKongMessage {
+                                let response_msg = ImMessage {
                                     msg_type: "online_clients_response".to_string(),
                                     data: serde_json::json!(online_clients),
-                                    target_id: None,
+                                    target_uid: None,
                                 };
                                 let response_json = serde_json::to_string(&response_msg)?;
                                 self.send_message_to_client(
@@ -655,24 +525,33 @@ impl VConnectIMServer {
                             }
                             "auth" => {
                                 info!("🔐 Auth request from {}", client_id);
-                                let auth_response = WuKongMessage {
+                                let token = wk_msg
+                                    .data
+                                    .get("token")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
+                                let uid_opt = wk_msg
+                                    .data
+                                    .get("uid")
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.to_string());
+                                let is_valid = crate::service::auth::validate_token(self, token)
+                                    .await
+                                    .unwrap_or(false);
+                                let auth_response = ImMessage {
                                     msg_type: "auth_response".to_string(),
-                                    data: serde_json::json!({
-                                        "status": "success",
-                                        "message": "Authentication successful"
-                                    }),
-                                    target_id: None,
+                                    data: serde_json::json!({ "status": if is_valid {"success"} else {"failed"}, "message": if is_valid {"Authentication successful"} else {"Authentication failed"} }),
+                                    target_uid: None,
                                 };
                                 let auth_json = serde_json::to_string(&auth_response)?;
                                 self.send_message_to_client(client_id, Message::Text(auth_json))
                                     .await?;
-
-                                // 写入连接的 uid（若提供） / persist uid to connection if provided
-                                if let Some(uid_val) =
-                                    wk_msg.data.get("uid").and_then(|v| v.as_str())
-                                {
-                                    if let Some(mut conn) = self.connections.get_mut(client_id) {
-                                        conn.uid = Some(uid_val.to_string());
+                                if is_valid {
+                                    if let Some(uid_val) = uid_opt {
+                                        let _ = crate::service::auth::apply_auth(
+                                            self, client_id, &uid_val,
+                                        )
+                                        .await;
                                     }
                                 }
                             }
@@ -680,36 +559,94 @@ impl VConnectIMServer {
                                 info!("💬 Message from {}: {:?}", client_id, wk_msg.data);
 
                                 // 如果有目标ID，发送给指定客户端，否则回声
-                                if let Some(target_id) = &wk_msg.target_id {
-                                    if target_id != client_id {
-                                        let forward_msg = WuKongMessage {
+                                if let Some(target_uid) = &wk_msg.target_uid {
+                                    {
+                                        let message_id = Uuid::new_v4().to_string();
+                                        let forward_msg = ImMessage {
                                             msg_type: "forwarded_message".to_string(),
                                             data: serde_json::json!({
-                                                "from": client_id,
+                                                "from": self.connections.get(client_id).and_then(|c| c.uid.clone()).unwrap_or_default(),
                                                 "content": wk_msg.data,
-                                                "timestamp": chrono::Utc::now().timestamp_millis()
+                                                "timestamp": chrono::Utc::now().timestamp_millis(),
+                                                "message_id": message_id
                                             }),
-                                            target_id: None,
+                                            target_uid: None,
                                         };
                                         let forward_json = serde_json::to_string(&forward_msg)?;
-                                        let delivery_result = self
-                                            .send_message_to_client(
-                                                target_id,
-                                                Message::Text(forward_json),
-                                            )
-                                            .await;
+                                        let record = storage::MessageRecord {
+                                            message_id: message_id.clone(),
+                                            from_client_id: client_id.to_string(),
+                                            to_client_id: target_uid.clone(),
+                                            content: wk_msg.data.clone(),
+                                            timestamp: chrono::Utc::now().timestamp_millis(),
+                                            msg_type: "message".to_string(),
+                                            room_id: None,
+                                        };
+                                        self.raft.append_entry_as(&self.node_id, &record)?;
+                                        let _ = self.storage.append(&record);
+                                        // 依据UID发送到所有在线客户端 / deliver to all clients of target uid
+                                        let delivery_result = if let Some(clients) =
+                                            self.uid_clients.get(target_uid)
+                                        {
+                                            let mut ok = false;
+                                            for cid in clients.iter() {
+                                                if self
+                                                    .send_message_to_client(
+                                                        &cid,
+                                                        Message::Text(forward_json.clone()),
+                                                    )
+                                                    .await
+                                                    .is_ok()
+                                                {
+                                                    ok = true;
+                                                }
+                                            }
+                                            if ok {
+                                                Ok(())
+                                            } else {
+                                                Err(anyhow::anyhow!("no clients"))
+                                            }
+                                        } else {
+                                            // 跨节点HTTP/RPC转发（最小版本）/ Cross-node forward via HTTP
+                                            let mut ok = false;
+                                            if let Ok(cm) = v::get_global_config_manager() {
+                                                let peers = cm.get::<String>("cluster.peers").unwrap_or_default();
+                                                for base in peers.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                                                    let list_url = format!("{}/v1/internal/clients_by_uid?uid={}", base, target_uid);
+                                                    if let Ok(resp) = reqwest::get(&list_url).await {
+                                                        if resp.status().is_success() {
+                                                            if let Ok(val) = resp.json::<serde_json::Value>().await {
+                                                                let ids = val.get("client_ids").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+                                                                if !ids.is_empty() {
+                                                                    for idv in ids {
+                                                                        if let Some(cid) = idv.as_str() {
+                                                                            let fwd_url = format!("{}/v1/internal/forward_client", base);
+                                                                            let body = serde_json::json!({"client_id": cid, "text": forward_json});
+                                                                            if let Ok(res2) = reqwest::Client::new().post(&fwd_url).json(&body).send().await {
+                                                                                if res2.status().is_success() { ok = true; }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    if ok { break; }
+                                                }
+                                            }
+                                            if ok { Ok(()) } else { Err(anyhow::anyhow!("uid offline")) }
+                                        };
 
                                         match delivery_result {
                                             Ok(_) => {
                                                 // 发送消息送达Webhook事件 / Send message delivered webhook event
-                                                let message_id = Uuid::new_v4().to_string();
                                                 service::webhook::send_message_webhook(
                                                     self,
                                                     &message_id,
                                                     client_id,
                                                     &None, // from_uid
-                                                    &Some(target_id.clone()),
-                                                    &None, // to_uid
+                                                    &Some(target_uid.clone()),
+                                                    &Some(target_uid.clone()),
                                                     &wk_msg.data,
                                                     "message",
                                                     "delivered",
@@ -718,13 +655,14 @@ impl VConnectIMServer {
                                                 .await;
 
                                                 // 同时给发送者确认
-                                                let confirm_msg = WuKongMessage {
+                                                let confirm_msg = ImMessage {
                                                     msg_type: "message_sent".to_string(),
                                                     data: serde_json::json!({
-                                                        "to": target_id,
-                                                        "status": "delivered"
+                                                        "to": target_uid,
+                                                        "status": "delivered",
+                                                        "message_id": message_id
                                                     }),
-                                                    target_id: None,
+                                                    target_uid: None,
                                                 };
                                                 let confirm_json =
                                                     serde_json::to_string(&confirm_msg)?;
@@ -733,8 +671,24 @@ impl VConnectIMServer {
                                                     Message::Text(confirm_json),
                                                 )
                                                 .await?;
+                                                let deadline_ms = v::get_global_config_manager()
+                                                    .ok()
+                                                    .map(|cm| {
+                                                        cm.get_or("delivery.deadline_ms", 500_i64)
+                                                            as u64
+                                                    })
+                                                    .unwrap_or(500);
+                                                self.await_ack_or_queue_offline(
+                                                    target_uid.clone(),
+                                                    message_id.clone(),
+                                                    None,
+                                                    wk_msg.data.clone(),
+                                                    "message".to_string(),
+                                                    deadline_ms,
+                                                )
+                                                .await;
                                             }
-                                            Err(e) => {
+                                            Err(_e) => {
                                                 // 发送消息失败Webhook事件 / Send message failed webhook event
                                                 let message_id = Uuid::new_v4().to_string();
                                                 service::webhook::send_message_webhook(
@@ -742,28 +696,28 @@ impl VConnectIMServer {
                                                     &message_id,
                                                     client_id,
                                                     &None, // from_uid
-                                                    &Some(target_id.clone()),
-                                                    &None, // to_uid
+                                                    &Some(target_uid.clone()),
+                                                    &Some(target_uid.clone()),
                                                     &wk_msg.data,
                                                     "message",
                                                     "failed",
                                                     None,
                                                 )
                                                 .await;
-                                                return Err(e);
+                                                return Ok(());
                                             }
                                         }
                                     }
                                 } else {
                                     // 回声给发送者
-                                    let echo_msg = WuKongMessage {
+                                    let echo_msg = ImMessage {
                                         msg_type: "message_echo".to_string(),
                                         data: serde_json::json!({
                                             "original": wk_msg.data,
                                             "from": client_id,
                                             "timestamp": chrono::Utc::now().timestamp_millis()
                                         }),
-                                        target_id: None,
+                                        target_uid: None,
                                     };
                                     let echo_json = serde_json::to_string(&echo_msg)?;
                                     self.send_message_to_client(
@@ -775,68 +729,173 @@ impl VConnectIMServer {
                             }
                             "private_message" => {
                                 // 私聊消息，必须有目标ID
-                                if let Some(target_id) = &wk_msg.target_id {
-                                    let private_msg = WuKongMessage {
+                                if let Some(target_uid) = &wk_msg.target_uid {
+                                    if !self.allow_send_to_uid(target_uid) {
+                                        let err = ImMessage {
+                                            msg_type: "error".to_string(),
+                                            data: serde_json::json!({"message":"target uid blocked or rate limited"}),
+                                            target_uid: None,
+                                        };
+                                        let txt = serde_json::to_string(&err)?;
+                                        self.send_message_to_client(client_id, Message::Text(txt))
+                                            .await?;
+                                        return Ok(());
+                                    }
+                                    let message_id = Uuid::new_v4().to_string();
+                                    let private_msg = ImMessage {
                                         msg_type: "private_message".to_string(),
                                         data: serde_json::json!({
-                                            "from": client_id,
+                                            "from": self.connections.get(client_id).and_then(|c| c.uid.clone()).unwrap_or_default(),
                                             "content": wk_msg.data,
-                                            "timestamp": chrono::Utc::now().timestamp_millis()
+                                            "timestamp": chrono::Utc::now().timestamp_millis(),
+                                            "message_id": message_id
                                         }),
-                                        target_id: None,
+                                        target_uid: None,
                                     };
                                     let private_json = serde_json::to_string(&private_msg)?;
-                                    let delivery_result = self
-                                        .send_message_to_client(
-                                            target_id,
-                                            Message::Text(private_json),
-                                        )
-                                        .await;
+                                    let record = storage::MessageRecord {
+                                        message_id: message_id.clone(),
+                                        from_client_id: client_id.to_string(),
+                                        to_client_id: target_uid.clone(),
+                                        content: wk_msg.data.clone(),
+                                        timestamp: chrono::Utc::now().timestamp_millis(),
+                                        msg_type: "private_message".to_string(),
+                                        room_id: None,
+                                    };
+                                    self.raft.append_entry_as(&self.node_id, &record)?;
+                                    let delivery_result = if let Some(clients) =
+                                        self.uid_clients.get(target_uid)
+                                    {
+                                        let mut ok = false;
+                                        for cid in clients.iter() {
+                                            if self
+                                                .send_message_to_client(
+                                                    &cid,
+                                                    Message::Text(private_json.clone()),
+                                                )
+                                                .await
+                                                .is_ok()
+                                            {
+                                                ok = true;
+                                            }
+                                        }
+                                        if ok {
+                                            Ok(())
+                                        } else {
+                                            Err(anyhow::anyhow!("no clients"))
+                                        }
+                                    } else {
+                                        let mut ok = false;
+                                        for node in self.directory.list_nodes() {
+                                            if let Some(remote) =
+                                                self.directory.get_server(&node.node_id)
+                                            {
+                                                if let Some(rclients) =
+                                                    remote.uid_clients.get(target_uid)
+                                                {
+                                                    for cid in rclients.iter() {
+                                                        if remote
+                                                            .send_message_to_client(
+                                                                &cid,
+                                                                Message::Text(private_json.clone()),
+                                                            )
+                                                            .await
+                                                            .is_ok()
+                                                        {
+                                                            ok = true;
+                                                        }
+                                                    }
+                                                    if ok {
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        if ok {
+                                            Ok(())
+                                        } else {
+                                            Err(anyhow::anyhow!("uid offline"))
+                                        }
+                                    };
 
                                     match delivery_result {
                                         Ok(_) => {
                                             // 发送私聊消息送达Webhook事件 / Send private message delivered webhook event
-                                            let message_id = Uuid::new_v4().to_string();
                                             service::webhook::send_message_webhook(
                                                 self,
                                                 &message_id,
                                                 client_id,
-                                                &None, // from_uid
-                                                &Some(target_id.clone()),
-                                                &None, // to_uid
+                                                &self
+                                                    .connections
+                                                    .get(client_id)
+                                                    .and_then(|c| c.uid.clone()),
+                                                &None,
+                                                &Some(target_uid.clone()),
                                                 &wk_msg.data,
                                                 "private_message",
                                                 "delivered",
                                                 Some(chrono::Utc::now().timestamp_millis()),
                                             )
                                             .await;
+
+                                            // 给发送者确认 / Confirm to sender
+                                            let confirm_msg = ImMessage {
+                                                msg_type: "message_sent".to_string(),
+                                                data: serde_json::json!({
+                                                    "to": target_uid,
+                                                    "status": "delivered",
+                                                    "message_id": message_id
+                                                }),
+                                                target_uid: None,
+                                            };
+                                            let confirm_json = serde_json::to_string(&confirm_msg)?;
+                                            self.send_message_to_client(
+                                                client_id,
+                                                Message::Text(confirm_json),
+                                            )
+                                            .await?;
+                                            let deadline_ms = v::get_global_config_manager()
+                                                .ok()
+                                                .map(|cm| {
+                                                    cm.get_or("delivery.deadline_ms", 500_i64)
+                                                        as u64
+                                                })
+                                                .unwrap_or(500);
+                                            self.await_ack_or_queue_offline(
+                                                target_uid.clone(),
+                                                message_id.clone(),
+                                                None,
+                                                wk_msg.data.clone(),
+                                                "private_message".to_string(),
+                                                deadline_ms,
+                                            )
+                                            .await;
                                         }
-                                        Err(e) => {
+                                        Err(_e) => {
                                             // 发送私聊消息失败Webhook事件 / Send private message failed webhook event
-                                            let message_id = Uuid::new_v4().to_string();
                                             service::webhook::send_message_webhook(
                                                 self,
                                                 &message_id,
                                                 client_id,
                                                 &None, // from_uid
-                                                &Some(target_id.clone()),
-                                                &None, // to_uid
+                                                &Some(target_uid.clone()),
+                                                &Some(target_uid.clone()),
                                                 &wk_msg.data,
                                                 "private_message",
                                                 "failed",
                                                 None,
                                             )
                                             .await;
-                                            return Err(e);
+                                            return Ok(());
                                         }
                                     }
                                 } else {
-                                    let error_msg = WuKongMessage {
+                                    let error_msg = ImMessage {
                                         msg_type: "error".to_string(),
                                         data: serde_json::json!({
                                             "message": "private_message requires target_id"
                                         }),
-                                        target_id: None,
+                                        target_uid: None,
                                     };
                                     let error_json = serde_json::to_string(&error_msg)?;
                                     self.send_message_to_client(
@@ -846,17 +905,284 @@ impl VConnectIMServer {
                                     .await?;
                                 }
                             }
+                            "join_room" => {
+                                if let Some(room_id) =
+                                    wk_msg.data.get("room_id").and_then(|v| v.as_str())
+                                {
+                                    let uid_opt =
+                                        self.connections.get(client_id).and_then(|c| c.uid.clone());
+                                    if let Some(uid) = uid_opt {
+                                        let set =
+                                            self.rooms.entry(room_id.to_string()).or_default();
+                                        set.insert(uid.clone());
+                                        // 持久化房间成员 / Persist room member
+                                        let _ = self.storage.add_room_member(room_id, &uid);
+                                        let resp = ImMessage {
+                                            msg_type: "join_room_ok".to_string(),
+                                            data: serde_json::json!({"room_id": room_id}),
+                                            target_uid: None,
+                                        };
+                                        let txt = serde_json::to_string(&resp)?;
+                                        self.send_message_to_client(client_id, Message::Text(txt))
+                                            .await?;
+                                    } else {
+                                        let err = ImMessage {
+                                            msg_type: "error".to_string(),
+                                            data: serde_json::json!({"message":"join_room requires auth uid"}),
+                                            target_uid: None,
+                                        };
+                                        let txt = serde_json::to_string(&err)?;
+                                        self.send_message_to_client(client_id, Message::Text(txt))
+                                            .await?;
+                                    }
+                                }
+                            }
+                            "leave_room" => {
+                                if let Some(room_id) =
+                                    wk_msg.data.get("room_id").and_then(|v| v.as_str())
+                                {
+                                    if let Some(uid) =
+                                        self.connections.get(client_id).and_then(|c| c.uid.clone())
+                                    {
+                                        if let Some(set) = self.rooms.get_mut(room_id) {
+                                            set.remove(&uid);
+                                        }
+                                        // 持久化移除成员 / Persist remove member
+                                        let _ = self.storage.remove_room_member(room_id, &uid);
+                                        let resp = ImMessage {
+                                            msg_type: "leave_room_ok".to_string(),
+                                            data: serde_json::json!({"room_id": room_id}),
+                                            target_uid: None,
+                                        };
+                                        let txt = serde_json::to_string(&resp)?;
+                                        self.send_message_to_client(client_id, Message::Text(txt))
+                                            .await?;
+                                    }
+                                }
+                            }
+                            "group_message" => {
+                                let room_id_opt = wk_msg
+                                    .data
+                                    .get("room_id")
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.to_string());
+                                if let Some(room_id) = room_id_opt {
+                                    let message_id = Uuid::new_v4().to_string();
+                                    let forward_msg = ImMessage {
+                                        msg_type: "group_message".to_string(),
+                                        data: serde_json::json!({
+                                            "from": client_id,
+                                            "room_id": room_id,
+                                            "content": wk_msg.data,
+                                            "timestamp": chrono::Utc::now().timestamp_millis(),
+                                            "message_id": message_id
+                                        }),
+                                        target_uid: None,
+                                    };
+                                    let forward_json = serde_json::to_string(&forward_msg)?;
+                                    let record = storage::MessageRecord {
+                                        message_id: message_id.clone(),
+                                        from_client_id: client_id.to_string(),
+                                        to_client_id: room_id.clone(),
+                                        content: wk_msg.data.clone(),
+                                        timestamp: chrono::Utc::now().timestamp_millis(),
+                                        msg_type: "group_message".to_string(),
+                                        room_id: Some(room_id.clone()),
+                                    };
+                                    self.raft.append_entry_as(&self.node_id, &record)?;
+
+                                    let mut delivered_count = 0usize;
+                                    let mut offline_uids: Vec<String> = Vec::new();
+                                    if let Some(set) = self.rooms.get(&room_id) {
+                                        for uid in set.iter() {
+                                            let uid = uid.clone();
+                                            if !self.allow_send_to_uid(&uid) {
+                                                continue;
+                                            }
+                                            let clients_opt = self.uid_clients.get(&uid);
+                                            if let Some(clients) = clients_opt {
+                                                for cid in clients.iter() {
+                                                    let cid = cid.clone();
+                                                    let delivery = if let Some(loc_node) =
+                                                        self.directory.locate_client(&cid)
+                                                    {
+                                                        if loc_node != self.node_id {
+                                                            if let Some(remote) =
+                                                                self.directory.get_server(&loc_node)
+                                                            {
+                                                                remote
+                                                                    .send_message_to_client(
+                                                                        &cid,
+                                                                        Message::Text(
+                                                                            forward_json.clone(),
+                                                                        ),
+                                                                    )
+                                                                    .await
+                                                            } else {
+                                                                Err(anyhow::anyhow!(
+                                                                    "remote node not found",
+                                                                ))
+                                                            }
+                                                        } else {
+                                                            self.send_message_to_client(
+                                                                &cid,
+                                                                Message::Text(forward_json.clone()),
+                                                            )
+                                                            .await
+                                                        }
+                                                    } else {
+                                                        self.send_message_to_client(
+                                                            &cid,
+                                                            Message::Text(forward_json.clone()),
+                                                        )
+                                                        .await
+                                                    };
+                                                    if delivery.is_ok() {
+                                                        delivered_count += 1;
+                                                    }
+                                                }
+                                            } else {
+                                                offline_uids.push(uid);
+                                            }
+                                        }
+                                    } else {
+                                        // 回退：从持久化成员列表加载并投递 / Fallback to persistent members
+                                        if let Ok(members) =
+                                            self.storage.list_room_members(&room_id)
+                                        {
+                                            for uid in members {
+                                                if !self.allow_send_to_uid(&uid) {
+                                                    continue;
+                                                }
+                                                let clients_opt = self.uid_clients.get(&uid);
+                                                if let Some(clients) = clients_opt {
+                                                    for cid in clients.iter() {
+                                                        let cid = cid.clone();
+                                                        let delivery = if let Some(loc_node) =
+                                                            self.directory.locate_client(&cid)
+                                                        {
+                                                            if loc_node != self.node_id {
+                                                                if let Some(remote) = self
+                                                                    .directory
+                                                                    .get_server(&loc_node)
+                                                                {
+                                                                    remote
+                                                                        .send_message_to_client(
+                                                                            &cid,
+                                                                            Message::Text(
+                                                                                forward_json
+                                                                                    .clone(),
+                                                                            ),
+                                                                        )
+                                                                        .await
+                                                                } else {
+                                                                    Err(anyhow::anyhow!(
+                                                                        "remote node not found",
+                                                                    ))
+                                                                }
+                                                            } else {
+                                                                self.send_message_to_client(
+                                                                    &cid,
+                                                                    Message::Text(
+                                                                        forward_json.clone(),
+                                                                    ),
+                                                                )
+                                                                .await
+                                                            }
+                                                        } else {
+                                                            self.send_message_to_client(
+                                                                &cid,
+                                                                Message::Text(forward_json.clone()),
+                                                            )
+                                                            .await
+                                                        };
+                                                        if delivery.is_ok() {
+                                                            delivered_count += 1;
+                                                        }
+                                                    }
+                                                } else {
+                                                    offline_uids.push(uid);
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    for ou in offline_uids {
+                                        let _ = self.enforce_offline_quota_for_uid(&ou).await;
+                                        let off = storage::OfflineRecord {
+                                            message_id: message_id.clone(),
+                                            from_uid: self
+                                                .connections
+                                                .get(client_id)
+                                                .and_then(|c| c.uid.clone()),
+                                            to_uid: ou,
+                                            room_id: Some(room_id.clone()),
+                                            content: wk_msg.data.clone(),
+                                            timestamp: chrono::Utc::now().timestamp_millis(),
+                                            msg_type: "group_message".to_string(),
+                                        };
+                                        let _ = self.storage.store_offline(&off);
+                                    }
+
+                                    let confirm_msg = ImMessage {
+                                        msg_type: "group_message_sent".to_string(),
+                                        data: serde_json::json!({
+                                            "room_id": room_id,
+                                            "delivered_count": delivered_count,
+                                            "message_id": message_id
+                                        }),
+                                        target_uid: None,
+                                    };
+                                    let confirm_json = serde_json::to_string(&confirm_msg)?;
+                                    self.send_message_to_client(
+                                        client_id,
+                                        Message::Text(confirm_json),
+                                    )
+                                    .await?;
+                                } else {
+                                    let error_msg = ImMessage {
+                                        msg_type: "error".to_string(),
+                                        data: serde_json::json!({
+                                            "message": "group_message requires room_id"
+                                        }),
+                                        target_uid: None,
+                                    };
+                                    let error_json = serde_json::to_string(&error_msg)?;
+                                    self.send_message_to_client(
+                                        client_id,
+                                        Message::Text(error_json),
+                                    )
+                                    .await?;
+                                }
+                            }
+                            "ack" => {
+                                // 客户端确认消息ID（按UID）/ Client acknowledges message ID (by uid)
+                                if let Some(msg_id) =
+                                    wk_msg.data.get("message_id").and_then(|v| v.as_str())
+                                {
+                                    let uid_key = self
+                                        .connections
+                                        .get(client_id)
+                                        .and_then(|c| c.uid.clone())
+                                        .unwrap_or_default();
+                                    if !uid_key.is_empty() {
+                                        let set = self.acked_ids.entry(uid_key).or_default();
+                                        set.insert(msg_id.to_string());
+                                        debug!("✅ Ack received from uid for {}", msg_id);
+                                    }
+                                }
+                            }
                             _ => {
                                 warn!(
                                     "⚠️  Unknown message type from {}: {}",
                                     client_id, wk_msg.msg_type
                                 );
-                                let error_msg = WuKongMessage {
+                                let error_msg = ImMessage {
                                     msg_type: "error".to_string(),
                                     data: serde_json::json!({
                                         "message": format!("Unknown message type: {}", wk_msg.msg_type)
                                     }),
-                                    target_id: None,
+                                    target_uid: None,
                                 };
                                 let error_json = serde_json::to_string(&error_msg)?;
                                 self.send_message_to_client(client_id, Message::Text(error_json))
@@ -866,12 +1192,12 @@ impl VConnectIMServer {
                     }
                     Err(e) => {
                         warn!("⚠️  Invalid JSON from {}: {}", client_id, e);
-                        let error_msg = WuKongMessage {
+                        let error_msg = ImMessage {
                             msg_type: "error".to_string(),
                             data: serde_json::json!({
                                 "message": "Invalid JSON format"
                             }),
-                            target_id: None,
+                            target_uid: None,
                         };
                         let error_json = serde_json::to_string(&error_msg)?;
                         self.send_message_to_client(client_id, Message::Text(error_json))
@@ -907,6 +1233,56 @@ impl VConnectIMServer {
         Ok(())
     }
 
+    #[allow(dead_code)]
+    async fn replicate_record(&self, rec: &storage::MessageRecord) -> Result<()> {
+        self.raft.append_entry_as(&self.node_id, rec)?;
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    async fn replicate_with_retry(
+        &self,
+        rec: &storage::MessageRecord,
+        max_retries: u32,
+        backoff_ms: u64,
+    ) -> Result<()> {
+        let mut attempt = 0;
+        loop {
+            if self.raft.append_entry_as(&self.node_id, rec).is_ok() {
+                return Ok(());
+            }
+            if attempt >= max_retries {
+                return Err(anyhow::anyhow!("replication quorum not met"));
+            }
+            attempt += 1;
+            tokio::time::sleep(Duration::from_millis(backoff_ms * attempt as u64)).await;
+        }
+    }
+
+    /// 验证令牌（允许本地/远端）/ Validate token (local/remote)
+    async fn validate_token(&self, token: &str) -> Result<bool> {
+        if token.is_empty() {
+            return Ok(false);
+        }
+        if let Some(cfg) = &self.auth_config {
+            if !cfg.enabled {
+                // 关闭鉴权时可选允许测试令牌 / Allow test token when auth disabled
+                return Ok(true);
+            }
+            let client = reqwest::Client::builder()
+                .timeout(Duration::from_millis(cfg.timeout_ms))
+                .build()?;
+            let resp = client
+                .get(format!("{}/v1/sso/auth", cfg.center_url))
+                .query(&[("token", token)])
+                .send()
+                .await?;
+            Ok(resp.status().is_success())
+        } else {
+            Ok(true)
+        }
+    }
+
     /// 发送Webhook事件 / Send Webhook Event
     async fn send_webhook_event(&self, event_type: WebhookEventType, data: serde_json::Value) {
         if let Some(webhook_config) = &self.webhook_config {
@@ -933,7 +1309,7 @@ impl VConnectIMServer {
 
     /// 交付Webhook事件到第三方服务器 / Deliver Webhook Event to Third-party Server
     async fn deliver_webhook_event(
-        webhook_config: WebhookConfig,
+        webhook_config: crate::config::WebhookConfigLite,
         event: WebhookEvent,
     ) -> Result<()> {
         let client = reqwest::Client::builder()
@@ -941,7 +1317,11 @@ impl VConnectIMServer {
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to build HTTP client: {}", e))?;
 
-        let mut request = client.post(&webhook_config.url).json(&event);
+        let url = webhook_config
+            .url
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("Webhook url not configured"))?;
+        let mut request = client.post(url).json(&event);
 
         // 添加签名头 / Add signature header if secret is configured
         if let Some(secret) = &webhook_config.secret {
@@ -999,6 +1379,7 @@ impl VConnectIMServer {
     }
 
     /// 发送客户端上线Webhook事件 / Send Client Online Webhook Event
+    #[allow(dead_code)]
     async fn send_client_online_webhook(
         &self,
         client_id: &str,
@@ -1019,6 +1400,7 @@ impl VConnectIMServer {
     }
 
     /// 发送客户端离线Webhook事件 / Send Client Offline Webhook Event
+    #[allow(dead_code)]
     async fn send_client_offline_webhook(
         &self,
         client_id: &str,
@@ -1082,15 +1464,7 @@ impl VConnectIMServer {
 // Implement unified HealthCheck for IM server
 // HealthCheck 的具体实现已迁移至 service::health
 
-// 实现Clone trait用于多线程共享
-impl Clone for VConnectIMServer {
-    fn clone(&self) -> Self {
-        Self {
-            connections: self.connections.clone(),
-            webhook_config: self.webhook_config.clone(),
-        }
-    }
-}
+// Clone 已在 server 模块实现 / Clone implemented in server module
 
 /// 启动HTTP服务器 / Start HTTP server
 async fn start_http_server(server: Arc<VConnectIMServer>, host: String, port: u16) -> Result<()> {
@@ -1101,8 +1475,26 @@ async fn start_http_server(server: Arc<VConnectIMServer>, host: String, port: u1
     // 使用 actix-web 构建路由（自动注册） / Build routes with actix-web (auto registry)
     HttpServer::new(move || {
         App::new()
+            .wrap(
+                actix_web::middleware::DefaultHeaders::new()
+                    .add(("Access-Control-Allow-Origin", "*"))
+                    .add(("Access-Control-Allow-Headers", "*"))
+                    .add((
+                        "Access-Control-Allow-Methods",
+                        "GET, POST, PUT, DELETE, OPTIONS",
+                    )),
+            )
             .app_data(web::Data::new(server.clone()))
-            .configure(api_registry::configure)
+            .configure(|cfg| {
+                crate::api::openapi::register(cfg, "/openapi.json");
+            })
+            // 内部跨节点API / internal cross-node APIs
+            .configure(|cfg| {
+                crate::api::v1::internal::has_client::register(cfg, "/v1/internal/has_client");
+                crate::api::v1::internal::forward_client::register(cfg, "/v1/internal/forward_client");
+                crate::api::v1::internal::clients_by_uid::register(cfg, "/v1/internal/clients_by_uid");
+            })
+            .configure(crate::router::configure)
     })
     .bind(addr.clone())?
     .run()
@@ -1124,6 +1516,18 @@ async fn start_http_server(server: Arc<VConnectIMServer>, host: String, port: u1
     info!("   Detailed Health: curl http://{}/health/detailed", addr);
 
     Ok(())
+}
+
+// 处理CORS预检请求（全路径匹配）/ Handle CORS preflight for all paths
+async fn preflight_ok() -> actix_web::HttpResponse {
+    actix_web::HttpResponse::NoContent()
+        .insert_header(("Access-Control-Allow-Origin", "*"))
+        .insert_header(("Access-Control-Allow-Headers", "*"))
+        .insert_header((
+            "Access-Control-Allow-Methods",
+            "GET, POST, PUT, DELETE, OPTIONS",
+        ))
+        .finish()
 }
 
 #[tokio::main]
@@ -1156,6 +1560,11 @@ async fn main() -> Result<()> {
     let ws_port: u16 = cm.get_or("server.ws_port", 5200_i64) as u16;
     let http_port: u16 = cm.get_or("server.http_port", 8080_i64) as u16;
     let timeout_ms: u64 = cm.get_or("server.timeout_ms", 10000_i64) as u64;
+
+    // 鉴权配置 / Auth Configuration
+    let auth_enabled: bool = cm.get_or("auth.enabled", false);
+    let auth_center_url: String = cm.get_or("auth.center_url", "http://127.0.0.1:8090".to_string());
+    let auth_timeout_ms: u64 = cm.get_or("auth.timeout_ms", 1000_i64) as u64;
 
     let webhook_url: Option<String> = cm.get::<String>("webhook.url").ok();
     let webhook_timeout_ms: u64 = cm.get_or("webhook.timeout_ms", 3000000_i64) as u64;
@@ -1195,42 +1604,43 @@ async fn main() -> Result<()> {
     info!("   Online Clients: {{\"type\":\"online_clients\",\"data\":{{}}}}");
 
     // 创建带Webhook配置的服务器 / Create server with webhook configuration
-    let server = if webhook_enabled && webhook_url.is_some() {
-        let webhook_config = WebhookConfig {
-            url: webhook_url.unwrap(),
+    let mut server_builder = VConnectIMServer::new();
+    if webhook_enabled && webhook_url.is_some() {
+        let webhook_config = crate::config::WebhookConfigLite {
+            url: Some(webhook_url.unwrap()),
             timeout_ms: webhook_timeout_ms,
             secret: webhook_secret,
             enabled: true,
         };
-        Arc::new(VConnectIMServer::new().with_webhook_config(webhook_config))
-    } else {
-        Arc::new(VConnectIMServer::new())
-    };
+        server_builder = server_builder.with_webhook_config(webhook_config);
+    }
+    if auth_enabled {
+        let auth_cfg = crate::config::AuthConfigLite {
+            enabled: auth_enabled,
+            center_url: auth_center_url,
+            timeout_ms: auth_timeout_ms,
+        };
+        server_builder = server_builder.with_auth_config(auth_cfg);
+    }
+    let node_id: String = cm.get_or("server.node_id", "node-local".to_string());
+    let directory = Arc::new(cluster::directory::Directory::new());
+    let raft_cluster = Arc::new(cluster::raft::RaftCluster::new(
+        directory.clone(),
+        node_id.clone(),
+    ));
+    server_builder = server_builder.with_node(node_id.clone(), directory.clone());
+    server_builder = server_builder.with_raft(raft_cluster.clone());
+    let server = Arc::new(server_builder);
+    directory.register_server(&node_id, server.clone());
+
+    // 加载持久化房间成员到内存
+    let _ = server.load_rooms_from_storage().await;
 
     let server_clone = server.clone();
     let server_http = server.clone();
 
     // 启动自动心跳清理任务 / Start automatic heartbeat cleanup task
-    tokio::spawn(async move {
-        // 根据超时时间动态调整清理间隔 / Adjust cleanup interval based on timeout
-        let cleanup_interval_ms = if timeout_ms <= 1000 {
-            timeout_ms / 2 // 对于短超时，每半周期清理一次 / For short timeouts, cleanup every half cycle
-        } else if timeout_ms <= 10000 {
-            1000 // 对于中等超时，每秒清理一次 / For medium timeouts, cleanup every second
-        } else {
-            5000 // 对于长超时，每5秒清理一次 / For long timeouts, cleanup every 5 seconds
-        };
-
-        info!(
-            "⏰ Cleanup interval set to {}ms for timeout {}ms",
-            cleanup_interval_ms, timeout_ms
-        );
-        let mut cleanup_interval = interval(Duration::from_millis(cleanup_interval_ms));
-        loop {
-            cleanup_interval.tick().await;
-            server_clone.cleanup_timeout_connections(timeout_ms).await; // 使用配置的毫秒超时 / Use configured millisecond timeout
-        }
-    });
+    tasks::heartbeat::spawn_cleanup_task(server_clone, timeout_ms);
 
     // 启动WebSocket服务器 / Start WebSocket server
     let ws_server = server.clone();
@@ -1267,3 +1677,889 @@ async fn main() -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::sync::mpsc;
+    use tokio_tungstenite::tungstenite::Message;
+
+    #[tokio::test]
+    async fn test_ping_pong_and_private_message_ack() {
+        let directory = Arc::new(cluster::directory::Directory::new());
+        let raft = Arc::new(cluster::raft::RaftCluster::new(
+            directory.clone(),
+            "node-A".into(),
+        ));
+        let mut builder = VConnectIMServer::new();
+        builder = builder
+            .with_node("node-A".into(), directory.clone())
+            .with_raft(raft.clone());
+        let server = Arc::new(builder);
+        directory.register_server("node-A", server.clone());
+
+        let (a_tx, mut a_rx) = mpsc::unbounded_channel::<Message>();
+        let (b_tx, mut b_rx) = mpsc::unbounded_channel::<Message>();
+        let a_id = "A".to_string();
+        let b_id = "B".to_string();
+
+        server.connections.insert(
+            a_id.clone(),
+            Connection {
+                client_id: a_id.clone(),
+                uid: Some(a_id.clone()),
+                addr: "127.0.0.1:0".parse().unwrap(),
+                sender: a_tx,
+                last_heartbeat: Arc::new(std::sync::Mutex::new(Instant::now())),
+            },
+        );
+        server.connections.insert(
+            b_id.clone(),
+            Connection {
+                client_id: b_id.clone(),
+                uid: Some(b_id.clone()),
+                addr: "127.0.0.1:0".parse().unwrap(),
+                sender: b_tx,
+                last_heartbeat: Arc::new(std::sync::Mutex::new(Instant::now())),
+            },
+        );
+        server
+            .uid_clients
+            .entry(a_id.clone())
+            .or_default()
+            .insert(a_id.clone());
+        server
+            .uid_clients
+            .entry(b_id.clone())
+            .or_default()
+            .insert(b_id.clone());
+
+        // ping
+        let ping = ImMessage {
+            msg_type: "ping".to_string(),
+            data: serde_json::json!({}),
+            target_uid: None,
+        };
+        server
+            .handle_incoming_message(
+                Message::Text(serde_json::to_string(&ping).unwrap()),
+                &a_id,
+                &server.connections,
+            )
+            .await
+            .unwrap();
+        let pong = a_rx.recv().await.unwrap();
+        let pong_text = match pong {
+            Message::Text(t) => t,
+            _ => panic!("expected text"),
+        };
+        let pong_msg: ImMessage = serde_json::from_str(&pong_text).unwrap();
+        assert_eq!(pong_msg.msg_type, "pong");
+
+        // private message
+        let pm = ImMessage {
+            msg_type: "private_message".to_string(),
+            data: serde_json::json!({"text":"hello"}),
+            target_uid: Some(b_id.clone()),
+        };
+        server
+            .handle_incoming_message(
+                Message::Text(serde_json::to_string(&pm).unwrap()),
+                &a_id,
+                &server.connections,
+            )
+            .await
+            .unwrap();
+
+        let b_msg = b_rx.recv().await.unwrap();
+        let b_text = match b_msg {
+            Message::Text(t) => t,
+            _ => panic!("expected text"),
+        };
+        let b_wk: ImMessage = serde_json::from_str(&b_text).unwrap();
+        assert_eq!(b_wk.msg_type, "private_message");
+        let message_id = b_wk
+            .data
+            .get("message_id")
+            .and_then(|v| v.as_str())
+            .expect("message_id");
+
+        let a_confirm = a_rx.recv().await.unwrap();
+        let a_text = match a_confirm {
+            Message::Text(t) => t,
+            _ => panic!("expected text"),
+        };
+        let a_wk: ImMessage = serde_json::from_str(&a_text).unwrap();
+        assert_eq!(a_wk.msg_type, "message_sent");
+        assert_eq!(
+            a_wk.data
+                .get("message_id")
+                .and_then(|v| v.as_str())
+                .unwrap(),
+            message_id
+        );
+
+        // ack
+        let ack = ImMessage {
+            msg_type: "ack".to_string(),
+            data: serde_json::json!({"message_id": message_id}),
+            target_uid: None,
+        };
+        server
+            .handle_incoming_message(
+                Message::Text(serde_json::to_string(&ack).unwrap()),
+                &a_id,
+                &server.connections,
+            )
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_cross_node_private_message_routing() {
+        let directory = Arc::new(cluster::directory::Directory::new());
+        let raft = Arc::new(cluster::raft::RaftCluster::new(
+            directory.clone(),
+            "node-A".into(),
+        ));
+        let mut a_builder = VConnectIMServer::new();
+        a_builder = a_builder
+            .with_node("node-A".to_string(), directory.clone())
+            .with_raft(raft.clone());
+        let server_a = Arc::new(a_builder);
+        directory.register_server("node-A", server_a.clone());
+
+        let mut b_builder = VConnectIMServer::new();
+        b_builder = b_builder
+            .with_node("node-B".to_string(), directory.clone())
+            .with_raft(raft.clone());
+        let server_b = Arc::new(b_builder);
+        directory.register_server("node-B", server_b.clone());
+
+        let (a_tx, mut a_rx) = mpsc::unbounded_channel::<Message>();
+        let (b_tx, mut b_rx) = mpsc::unbounded_channel::<Message>();
+        let a_id = "A".to_string();
+        let b_id = "B".to_string();
+
+        server_a.connections.insert(
+            a_id.clone(),
+            Connection {
+                client_id: a_id.clone(),
+                uid: Some(a_id.clone()),
+                addr: "127.0.0.1:0".parse().unwrap(),
+                sender: a_tx,
+                last_heartbeat: Arc::new(std::sync::Mutex::new(Instant::now())),
+            },
+        );
+        server_b.connections.insert(
+            b_id.clone(),
+            Connection {
+                client_id: b_id.clone(),
+                uid: Some(b_id.clone()),
+                addr: "127.0.0.1:0".parse().unwrap(),
+                sender: b_tx,
+                last_heartbeat: Arc::new(std::sync::Mutex::new(Instant::now())),
+            },
+        );
+        directory.register_client_location(&a_id, "node-A");
+        directory.register_client_location(&b_id, "node-B");
+        server_a
+            .uid_clients
+            .entry(a_id.clone())
+            .or_default()
+            .insert(a_id.clone());
+        server_b
+            .uid_clients
+            .entry(b_id.clone())
+            .or_default()
+            .insert(b_id.clone());
+        server_a
+            .uid_clients
+            .entry(a_id.clone())
+            .or_default()
+            .insert(a_id.clone());
+        server_b
+            .uid_clients
+            .entry(b_id.clone())
+            .or_default()
+            .insert(b_id.clone());
+        server_a
+            .uid_clients
+            .entry(a_id.clone())
+            .or_default()
+            .insert(a_id.clone());
+        server_b
+            .uid_clients
+            .entry(b_id.clone())
+            .or_default()
+            .insert(b_id.clone());
+
+        let pm = ImMessage {
+            msg_type: "private_message".to_string(),
+            data: serde_json::json!({"text":"cross"}),
+            target_uid: Some(b_id.clone()),
+        };
+        server_a
+            .handle_incoming_message(
+                Message::Text(serde_json::to_string(&pm).unwrap()),
+                &a_id,
+                &server_a.connections,
+            )
+            .await
+            .unwrap();
+
+        let b_msg = b_rx.recv().await.unwrap();
+        let b_text = match b_msg {
+            Message::Text(t) => t,
+            _ => panic!("expected text"),
+        };
+        let b_wk: ImMessage = serde_json::from_str(&b_text).unwrap();
+        assert_eq!(b_wk.msg_type, "private_message");
+
+        let a_confirm = a_rx.recv().await.unwrap();
+        let a_text = match a_confirm {
+            Message::Text(t) => t,
+            _ => panic!("expected text"),
+        };
+        let a_wk: ImMessage = serde_json::from_str(&a_text).unwrap();
+        assert_eq!(a_wk.msg_type, "message_sent");
+    }
+
+    #[tokio::test]
+    async fn test_storage_append_on_private_message() {
+        let directory = Arc::new(cluster::directory::Directory::new());
+        let raft = Arc::new(cluster::raft::RaftCluster::new(
+            directory.clone(),
+            "node-A".into(),
+        ));
+        let mut s1b = VConnectIMServer::new();
+        s1b = s1b
+            .with_node("node-A".to_string(), directory.clone())
+            .with_raft(raft.clone());
+        let server_a = Arc::new(s1b);
+        directory.register_server("node-A", server_a.clone());
+
+        let mut s2b = VConnectIMServer::new();
+        s2b = s2b
+            .with_node("node-B".to_string(), directory.clone())
+            .with_raft(raft.clone());
+        let server_b = Arc::new(s2b);
+        directory.register_server("node-B", server_b.clone());
+
+        let (a_tx, mut a_rx) = mpsc::unbounded_channel::<Message>();
+        let (b_tx, mut b_rx) = mpsc::unbounded_channel::<Message>();
+        let a_id = "A".to_string();
+        let b_id = "B".to_string();
+
+        server_a.connections.insert(
+            a_id.clone(),
+            Connection {
+                client_id: a_id.clone(),
+                uid: Some(a_id.clone()),
+                addr: "127.0.0.1:0".parse().unwrap(),
+                sender: a_tx,
+                last_heartbeat: Arc::new(std::sync::Mutex::new(Instant::now())),
+            },
+        );
+        server_b.connections.insert(
+            b_id.clone(),
+            Connection {
+                client_id: b_id.clone(),
+                uid: Some(b_id.clone()),
+                addr: "127.0.0.1:0".parse().unwrap(),
+                sender: b_tx,
+                last_heartbeat: Arc::new(std::sync::Mutex::new(Instant::now())),
+            },
+        );
+        directory.register_client_location(&a_id, "node-A");
+        directory.register_client_location(&b_id, "node-B");
+        server_a
+            .uid_clients
+            .entry(a_id.clone())
+            .or_default()
+            .insert(a_id.clone());
+        server_b
+            .uid_clients
+            .entry(b_id.clone())
+            .or_default()
+            .insert(b_id.clone());
+
+        let pm = ImMessage {
+            msg_type: "private_message".to_string(),
+            data: serde_json::json!({"text":"persist"}),
+            target_uid: Some(b_id.clone()),
+        };
+        server_a
+            .handle_incoming_message(
+                Message::Text(serde_json::to_string(&pm).unwrap()),
+                &a_id,
+                &server_a.connections,
+            )
+            .await
+            .unwrap();
+
+        let b_msg = b_rx.recv().await.unwrap();
+        let b_text = match b_msg {
+            Message::Text(t) => t,
+            _ => panic!("expected text"),
+        };
+        let b_wk: ImMessage = serde_json::from_str(&b_text).unwrap();
+        let message_id = b_wk
+            .data
+            .get("message_id")
+            .and_then(|v| v.as_str())
+            .unwrap()
+            .to_string();
+
+        let stored_local = server_a.storage.get(&message_id).unwrap();
+        let stored_remote = server_b.storage.get(&message_id).unwrap();
+        assert!(stored_local.is_some());
+        assert!(stored_remote.is_some());
+
+        let _ = a_rx.recv().await.unwrap(); // confirm
+    }
+
+    #[tokio::test]
+    async fn test_replication_retry_failure() {
+        let directory = Arc::new(cluster::directory::Directory::new());
+        let raft = Arc::new(cluster::raft::RaftCluster::new(
+            directory.clone(),
+            "node-A".into(),
+        ));
+        let mut a_builder = VConnectIMServer::new();
+        a_builder = a_builder
+            .with_node("node-A".to_string(), directory.clone())
+            .with_raft(raft.clone());
+        let server_a = Arc::new(a_builder);
+        directory.register_server("node-A", server_a.clone());
+
+        // 注册一个无Server的节点以提高quorum / register node without server to increase quorum
+        directory.register_node(cluster::router::NodeInfo {
+            node_id: "node-B".into(),
+            weight: 1,
+            is_alive: true,
+        });
+
+        let (a_tx, mut _a_rx) = mpsc::unbounded_channel::<Message>();
+        let a_id = "A".to_string();
+        server_a.connections.insert(
+            a_id.clone(),
+            Connection {
+                client_id: a_id.clone(),
+                uid: Some(a_id.clone()),
+                addr: "127.0.0.1:0".parse().unwrap(),
+                sender: a_tx,
+                last_heartbeat: Arc::new(std::sync::Mutex::new(Instant::now())),
+            },
+        );
+        directory.register_client_location(&a_id, "node-A");
+
+        let pm = ImMessage {
+            msg_type: "private_message".to_string(),
+            data: serde_json::json!({"text":"fail"}),
+            target_uid: Some("B".into()),
+        };
+        let result = server_a
+            .handle_incoming_message(
+                Message::Text(serde_json::to_string(&pm).unwrap()),
+                &a_id,
+                &server_a.connections,
+            )
+            .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_leader_switch_and_write() {
+        let directory = Arc::new(cluster::directory::Directory::new());
+        let raft = Arc::new(cluster::raft::RaftCluster::new(
+            directory.clone(),
+            "node-A".into(),
+        ));
+        let mut a_builder = VConnectIMServer::new();
+        a_builder = a_builder
+            .with_node("node-A".to_string(), directory.clone())
+            .with_raft(raft.clone());
+        let server_a = Arc::new(a_builder);
+        directory.register_server("node-A", server_a.clone());
+
+        let mut b_builder = VConnectIMServer::new();
+        b_builder = b_builder
+            .with_node("node-B".to_string(), directory.clone())
+            .with_raft(raft.clone());
+        let server_b = Arc::new(b_builder);
+        directory.register_server("node-B", server_b.clone());
+
+        let (a_tx, mut _a_rx) = mpsc::unbounded_channel::<Message>();
+        let (b_tx, mut _b_rx) = mpsc::unbounded_channel::<Message>();
+        let a_id = "A".to_string();
+        let b_id = "B".to_string();
+        server_a.connections.insert(
+            a_id.clone(),
+            Connection {
+                client_id: a_id.clone(),
+                uid: Some(a_id.clone()),
+                addr: "127.0.0.1:0".parse().unwrap(),
+                sender: a_tx,
+                last_heartbeat: Arc::new(std::sync::Mutex::new(Instant::now())),
+            },
+        );
+        server_b.connections.insert(
+            b_id.clone(),
+            Connection {
+                client_id: b_id.clone(),
+                uid: Some(b_id.clone()),
+                addr: "127.0.0.1:0".parse().unwrap(),
+                sender: b_tx,
+                last_heartbeat: Arc::new(std::sync::Mutex::new(Instant::now())),
+            },
+        );
+        directory.register_client_location(&a_id, "node-A");
+        directory.register_client_location(&b_id, "node-B");
+
+        let pm = ImMessage {
+            msg_type: "private_message".into(),
+            data: serde_json::json!({"text":"first"}),
+            target_uid: Some(b_id.clone()),
+        };
+        raft.set_leader("node-A".into());
+        // Leader为A时，A写入成功
+        let res_ok = server_a
+            .handle_incoming_message(
+                Message::Text(serde_json::to_string(&pm).unwrap()),
+                &a_id,
+                &server_a.connections,
+            )
+            .await;
+        assert!(res_ok.is_ok());
+
+        // 切换Leader到B
+        raft.set_leader("node-B".into());
+        let pm2 = ImMessage {
+            msg_type: "private_message".to_string(),
+            data: serde_json::json!({"text":"second"}),
+            target_uid: Some(a_id.clone()),
+        };
+        // A再写入应失败
+        let res_err = server_a
+            .handle_incoming_message(
+                Message::Text(serde_json::to_string(&pm2).unwrap()),
+                &a_id,
+                &server_a.connections,
+            )
+            .await;
+        assert!(res_err.is_err());
+        // B写入应成功
+        let res_ok_b = server_b
+            .handle_incoming_message(
+                Message::Text(serde_json::to_string(&pm2).unwrap()),
+                &b_id,
+                &server_b.connections,
+            )
+            .await;
+        assert!(res_ok_b.is_ok());
+    }
+
+    #[cfg(feature = "raft_async")]
+    #[tokio::test]
+    async fn test_async_raft_three_nodes_election_and_replication() {
+        use crate::cluster::raft_async::AsyncRaftCluster;
+        let cluster = AsyncRaftCluster::new();
+        // 3 节点添加 / add 3 nodes
+        cluster.add_node("node-1", storage::Storage::open_temporary().unwrap());
+        cluster.add_node("node-2", storage::Storage::open_temporary().unwrap());
+        cluster.add_node("node-3", storage::Storage::open_temporary().unwrap());
+        // 选举 / elect leader
+        cluster.elect("node-2");
+        // 写入并复制 / write and replicate
+        let rec = storage::MessageRecord {
+            message_id: uuid::Uuid::new_v4().to_string(),
+            from_client_id: "A".into(),
+            to_client_id: "B".into(),
+            content: serde_json::json!({"text":"raft-async"}),
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            msg_type: "private_message".into(),
+            room_id: None,
+        };
+        let ok = cluster.write("node-2", &rec).await;
+        assert!(ok.is_ok());
+        // 非Leader写入失败 / non-leader write fails
+        let err = cluster.write("node-1", &rec).await;
+        assert!(err.is_err());
+
+        // 安装快照 / install snapshot
+        cluster
+            .install_snapshot_from_leader("/tmp/raft-async-snap")
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_group_message_and_offline_store() {
+        let directory = Arc::new(cluster::directory::Directory::new());
+        let raft = Arc::new(cluster::raft::RaftCluster::new(
+            directory.clone(),
+            "node-A".into(),
+        ));
+        let mut builder = VConnectIMServer::new();
+        builder = builder
+            .with_node("node-A".into(), directory.clone())
+            .with_raft(raft.clone());
+        let server = Arc::new(builder);
+        directory.register_server("node-A", server.clone());
+
+        // Online client A with uid uA
+        let (a_tx, mut a_rx) = mpsc::unbounded_channel::<Message>();
+        let a_id = "A".to_string();
+        server.connections.insert(
+            a_id.clone(),
+            Connection {
+                client_id: a_id.clone(),
+                uid: Some("uA".to_string()),
+                addr: "127.0.0.1:0".parse().unwrap(),
+                sender: a_tx,
+                last_heartbeat: Arc::new(std::sync::Mutex::new(Instant::now())),
+            },
+        );
+        directory.register_client_location(&a_id, "node-A");
+        // Map uid->client
+        server
+            .uid_clients
+            .entry("uA".to_string())
+            .or_default()
+            .insert(a_id.clone());
+
+        // Room r1 with members uA (online) and uB (offline)
+        server
+            .rooms
+            .entry("r1".to_string())
+            .or_default()
+            .insert("uA".to_string());
+        server
+            .rooms
+            .entry("r1".to_string())
+            .or_default()
+            .insert("uB".to_string());
+
+        // Send group message via WS handler
+        let gm = ImMessage {
+            msg_type: "group_message".to_string(),
+            data: serde_json::json!({"room_id":"r1","text":"hi"}),
+            target_uid: None,
+        };
+        server
+            .handle_incoming_message(
+                Message::Text(serde_json::to_string(&gm).unwrap()),
+                &a_id,
+                &server.connections,
+            )
+            .await
+            .unwrap();
+
+        // A should receive group_message and confirmation
+        let first = a_rx.recv().await.unwrap();
+        let first_text = match first {
+            Message::Text(t) => t,
+            _ => panic!("expected text"),
+        };
+        let wk1: ImMessage = serde_json::from_str(&first_text).unwrap();
+        assert_eq!(wk1.msg_type, "group_message");
+        let second = a_rx.recv().await.unwrap();
+        let second_text = match second {
+            Message::Text(t) => t,
+            _ => panic!("expected text"),
+        };
+        let wk2: ImMessage = serde_json::from_str(&second_text).unwrap();
+        assert_eq!(wk2.msg_type, "group_message_sent");
+
+        // Offline pull for uB should contain one record
+        let list = server.storage.pull_offline("uB", 10).unwrap();
+        assert!(list.len() >= 1);
+        assert_eq!(list[0].to_uid, "uB");
+        assert_eq!(list[0].room_id.as_deref(), Some("r1"));
+
+        // Ack offline
+        let removed = server
+            .storage
+            .ack_offline("uB", &[list[0].message_id.clone()])
+            .unwrap();
+        assert_eq!(removed, 1);
+    }
+
+    #[tokio::test]
+    async fn test_load_rooms_from_storage() {
+        let directory = Arc::new(cluster::directory::Directory::new());
+        let raft = Arc::new(cluster::raft::RaftCluster::new(
+            directory.clone(),
+            "node-A".into(),
+        ));
+        let mut builder = VConnectIMServer::new();
+        builder = builder
+            .with_node("node-A".into(), directory.clone())
+            .with_raft(raft.clone());
+        let server = Arc::new(builder);
+        directory.register_server("node-A", server.clone());
+
+        // 预写入持久化成员
+        server.storage.add_room_member("r1", "uA").unwrap();
+        server.storage.add_room_member("r1", "uB").unwrap();
+        server.storage.add_room_member("r2", "uC").unwrap();
+
+        // 清空内存并加载
+        server.rooms.clear();
+        let total = server.load_rooms_from_storage().await.unwrap();
+        assert!(total >= 3);
+        let r1 = server.rooms.get("r1").unwrap();
+        assert!(r1.contains("uA"));
+        assert!(r1.contains("uB"));
+        let r2 = server.rooms.get("r2").unwrap();
+        assert!(r2.contains("uC"));
+    }
+
+    #[tokio::test]
+    async fn test_offline_time_filter_pagination() {
+        let directory = Arc::new(cluster::directory::Directory::new());
+        let raft = Arc::new(cluster::raft::RaftCluster::new(
+            directory.clone(),
+            "node-A".into(),
+        ));
+        let mut builder = VConnectIMServer::new();
+        builder = builder
+            .with_node("node-A".into(), directory.clone())
+            .with_raft(raft.clone());
+        let server = Arc::new(builder);
+        directory.register_server("node-A", server.clone());
+
+        let uid = "uT";
+        let base = chrono::Utc::now().timestamp_millis();
+        let rec1 = crate::storage::OfflineRecord {
+            message_id: uuid::Uuid::new_v4().to_string(),
+            from_uid: Some("uA".into()),
+            to_uid: uid.into(),
+            room_id: Some("r1".into()),
+            content: serde_json::json!({"n":1}),
+            timestamp: base - 2000,
+            msg_type: "group_message".into(),
+        };
+        let rec2 = crate::storage::OfflineRecord {
+            message_id: uuid::Uuid::new_v4().to_string(),
+            from_uid: Some("uA".into()),
+            to_uid: uid.into(),
+            room_id: Some("r1".into()),
+            content: serde_json::json!({"n":2}),
+            timestamp: base - 1000,
+            msg_type: "group_message".into(),
+        };
+        let rec3 = crate::storage::OfflineRecord {
+            message_id: uuid::Uuid::new_v4().to_string(),
+            from_uid: Some("uA".into()),
+            to_uid: uid.into(),
+            room_id: Some("r1".into()),
+            content: serde_json::json!({"n":3}),
+            timestamp: base,
+            msg_type: "group_message".into(),
+        };
+        server.storage.store_offline(&rec1).unwrap();
+        server.storage.store_offline(&rec2).unwrap();
+        server.storage.store_offline(&rec3).unwrap();
+
+        // 过滤时间窗口 [base-1500, base-500]
+        let (items, next) = server
+            .storage
+            .pull_offline_by_time(uid, None, 10, Some(base - 1500), Some(base - 500))
+            .unwrap();
+        assert_eq!(items.len(), 1); // 只有rec2
+        assert!(next.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_group_message_fallback_persist_members() {
+        let directory = Arc::new(cluster::directory::Directory::new());
+        let raft = Arc::new(cluster::raft::RaftCluster::new(
+            directory.clone(),
+            "node-A".into(),
+        ));
+        let mut builder = VConnectIMServer::new();
+        builder = builder
+            .with_node("node-A".into(), directory.clone())
+            .with_raft(raft.clone());
+        let server = Arc::new(builder);
+        directory.register_server("node-A", server.clone());
+
+        // 持久化房间成员，但不在内存 / Persist members but not in memory
+        server.storage.add_room_member("rP", "uX").unwrap();
+        server.rooms.clear();
+
+        // 在线客户端映射 uid->client
+        let (x_tx, mut x_rx) = mpsc::unbounded_channel::<Message>();
+        let x_id = "X".to_string();
+        server.connections.insert(
+            x_id.clone(),
+            Connection {
+                client_id: x_id.clone(),
+                uid: Some("uX".to_string()),
+                addr: "127.0.0.1:0".parse().unwrap(),
+                sender: x_tx,
+                last_heartbeat: Arc::new(std::sync::Mutex::new(Instant::now())),
+            },
+        );
+        directory.register_client_location(&x_id, "node-A");
+        server
+            .uid_clients
+            .entry("uX".to_string())
+            .or_default()
+            .insert(x_id.clone());
+
+        // 发送群聊消息到 rP，应当通过持久化成员路由到 X
+        let gm = ImMessage {
+            msg_type: "group_message".to_string(),
+            data: serde_json::json!({"room_id":"rP","text":"fallback"}),
+            target_uid: None,
+        };
+        server
+            .handle_incoming_message(
+                Message::Text(serde_json::to_string(&gm).unwrap()),
+                &x_id,
+                &server.connections,
+            )
+            .await
+            .unwrap();
+
+        let recv = x_rx.recv().await.unwrap();
+        let txt = match recv {
+            Message::Text(t) => t,
+            _ => panic!("expected text"),
+        };
+        let wk: ImMessage = serde_json::from_str(&txt).unwrap();
+        assert_eq!(wk.msg_type, "group_message");
+    }
+
+    #[tokio::test]
+    async fn test_offline_cleanup_and_members_pagination() {
+        let directory = Arc::new(cluster::directory::Directory::new());
+        let raft = Arc::new(cluster::raft::RaftCluster::new(
+            directory.clone(),
+            "node-A".into(),
+        ));
+        let mut builder = VConnectIMServer::new();
+        builder = builder
+            .with_node("node-A".into(), directory.clone())
+            .with_raft(raft.clone());
+        let server = Arc::new(builder);
+        directory.register_server("node-A", server.clone());
+
+        // 离线清理
+        let uid = "uC";
+        let now = chrono::Utc::now().timestamp_millis();
+        for i in 0..5 {
+            let rec = crate::storage::OfflineRecord {
+                message_id: uuid::Uuid::new_v4().to_string(),
+                from_uid: Some("uA".into()),
+                to_uid: uid.into(),
+                room_id: Some("rC".into()),
+                content: serde_json::json!({"i":i}),
+                timestamp: now - (i * 1000) as i64,
+                msg_type: "group_message".into(),
+            };
+            server.storage.store_offline(&rec).unwrap();
+        }
+        let removed = server.storage.cleanup_offline(uid, now - 2500, 10).unwrap();
+        assert!(removed >= 2);
+
+        // 成员分页
+        for u in ["u1", "u2", "u3", "u4", "u5"].iter() {
+            server.storage.add_room_member("rM", u).unwrap();
+        }
+        let (page1, cur1) = server
+            .storage
+            .list_room_members_paginated("rM", Some("u"), None, 2)
+            .unwrap();
+        assert_eq!(page1.len(), 2);
+        let (page2, _cur2) = server
+            .storage
+            .list_room_members_paginated("rM", Some("u"), cur1, 2)
+            .unwrap();
+        assert_eq!(page2.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_ack_deadline_queues_offline() {
+        let directory = Arc::new(cluster::directory::Directory::new());
+        let raft = Arc::new(cluster::raft::RaftCluster::new(
+            directory.clone(),
+            "node-A".into(),
+        ));
+        let mut builder = VConnectIMServer::new();
+        builder = builder
+            .with_node("node-A".into(), directory.clone())
+            .with_raft(raft.clone());
+        let server = Arc::new(builder);
+        directory.register_server("node-A", server.clone());
+
+        let (a_tx, mut _a_rx) = mpsc::unbounded_channel::<Message>();
+        let (b_tx, mut b_rx) = mpsc::unbounded_channel::<Message>();
+        let a_id = "A".to_string();
+        let b_id = "B".to_string();
+        server.connections.insert(
+            a_id.clone(),
+            Connection {
+                client_id: a_id.clone(),
+                uid: Some("uA".to_string()),
+                addr: "127.0.0.1:0".parse().unwrap(),
+                sender: a_tx,
+                last_heartbeat: Arc::new(std::sync::Mutex::new(Instant::now())),
+            },
+        );
+        server.connections.insert(
+            b_id.clone(),
+            Connection {
+                client_id: b_id.clone(),
+                uid: Some("uB".to_string()),
+                addr: "127.0.0.1:0".parse().unwrap(),
+                sender: b_tx,
+                last_heartbeat: Arc::new(std::sync::Mutex::new(Instant::now())),
+            },
+        );
+        directory.register_client_location(&a_id, "node-A");
+        directory.register_client_location(&b_id, "node-A");
+        server
+            .uid_clients
+            .entry("uA".to_string())
+            .or_default()
+            .insert(a_id.clone());
+        server
+            .uid_clients
+            .entry("uB".to_string())
+            .or_default()
+            .insert(b_id.clone());
+
+        let pm = ImMessage {
+            msg_type: "private_message".to_string(),
+            data: serde_json::json!({"text":"no-ack"}),
+            target_uid: Some("uB".to_string()),
+        };
+        server
+            .handle_incoming_message(
+                Message::Text(serde_json::to_string(&pm).unwrap()),
+                &a_id,
+                &server.connections,
+            )
+            .await
+            .unwrap();
+        let _delivered = b_rx.recv().await.unwrap();
+
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        // 应有离线数据 / should be queued offline
+        let count = server.storage.offline_count("uB").unwrap();
+        assert!(count >= 1);
+    }
+}
+// 为兼容现有API文件的导入，导出常用类型 / Re-export common types for API compatibility
+// 底部重复导出移除 / remove duplicated bottom re-exports
+// 对外导出常用类型，兼容已有API的 `use crate::...` 导入 / Re-export commonly used types for API files compatibility
+pub use crate::domain::message::{
+    ConnectRequest, ConnectResponse, HttpBroadcastRequest, HttpBroadcastResponse,
+    HttpSendMessageRequest, HttpSendMessageResponse, ImMessage, OnlineClientInfo,
+    OnlineClientsResponse, WebhookClientStatusData, WebhookEvent, WebhookEventType,
+    WebhookMessageData,
+};
+pub use crate::server::{Connection, VConnectIMServer};
