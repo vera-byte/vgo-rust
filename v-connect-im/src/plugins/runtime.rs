@@ -448,6 +448,7 @@ impl UnixSocketServer {
                     });
                 }
                 Err(e) => {
+                    // 接受连接错误（可能在关闭期间出现）/ Accept error (may occur during shutdown)
                     error!("Error accepting Unix Socket connection: {}", e);
                 }
             }
@@ -489,7 +490,12 @@ impl UnixSocketServer {
                     stream.flush().await?;
                 }
                 Err(e) => {
-                    debug!("Plugin connection closed: {}", e);
+                    // 连接关闭（EOF常见于优雅停机）/ Connection closed (EOF common on graceful shutdown)
+                    if e.kind() == std::io::ErrorKind::UnexpectedEof {
+                        info!("Plugin connection closed gracefully (EOF): {}", e);
+                    } else {
+                        debug!("Plugin connection closed: {}", e);
+                    }
                     break;
                 }
             }
