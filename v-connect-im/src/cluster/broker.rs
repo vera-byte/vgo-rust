@@ -8,10 +8,16 @@ pub struct ShardBroker {
 }
 
 impl ShardBroker {
-    pub fn new() -> Self { Self { recent_ids: DashSet::new() } }
+    pub fn new() -> Self {
+        Self {
+            recent_ids: DashSet::new(),
+        }
+    }
     #[allow(dead_code)]
     pub fn should_enqueue(&self, id: &str) -> bool {
-        if self.recent_ids.contains(id) { return false; }
+        if self.recent_ids.contains(id) {
+            return false;
+        }
         self.recent_ids.insert(id.to_string());
         true
     }

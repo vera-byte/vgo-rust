@@ -2,25 +2,19 @@ use crate::plugins::Plugin;
 use crate::server::VConnectIMServer;
 use anyhow::Result;
 use async_trait::async_trait;
+use v::plugin::builtin::auth::{AuthPlugin as VAuthPlugin, DefaultAuthPlugin as VDefaultAuthPlugin};
 
 /// 授权插件接口 / Authorization plugin interface
 #[async_trait]
 pub trait AuthPlugin: Plugin {
-    /// 验证客户端令牌 / Validate client token
     async fn validate(&self, server: &VConnectIMServer, token: &str) -> Result<bool>;
-
-    /// 应用授权结果 / Apply authorization result
     async fn apply(&self, server: &VConnectIMServer, client_id: &str, uid: &str) -> Result<()>;
 }
 
 /// 默认内置授权插件 / Built-in authorization plugin
-pub struct DefaultAuthPlugin;
+pub struct DefaultAuthPlugin { inner: VDefaultAuthPlugin }
 
-impl DefaultAuthPlugin {
-    pub fn new() -> Self {
-        Self
-    }
-}
+impl DefaultAuthPlugin { pub fn new() -> Self { Self { inner: VDefaultAuthPlugin::new() } } }
 
 impl Plugin for DefaultAuthPlugin {
     fn name(&self) -> &'static str {
@@ -31,59 +25,10 @@ impl Plugin for DefaultAuthPlugin {
 #[async_trait]
 impl AuthPlugin for DefaultAuthPlugin {
     async fn validate(&self, server: &VConnectIMServer, token: &str) -> Result<bool> {
-        if token.is_empty() {
-            return Ok(false);
-        }
-        if let Some(cfg) = &server.auth_config {
-            if !cfg.enabled {
-                return Ok(true);
-            }
-            let client = reqwest::Client::builder()
-                .timeout(std::time::Duration::from_millis(cfg.timeout_ms))
-                .build()?;
-            let resp = client
-                .get(format!("{}/v1/sso/auth", cfg.center_url))
-                .query(&[("token", token)])
-                .send()
-                .await?;
-            Ok(resp.status().is_success())
-        } else {
-            Ok(true)
-        }
+        VAuthPlugin::validate(&self.inner, server, token).await
     }
-
     async fn apply(&self, server: &VConnectIMServer, client_id: &str, uid: &str) -> Result<()> {
-        if let Some(mut conn) = server.connections.get_mut(client_id) {
-            conn.uid = Some(uid.to_string());
-        }
-        // 检查是否是该用户的首个连接 / Check if this is the first connection for this user
-        let is_first_connection = server
-            .uid_clients
-            .get(uid)
-            .map(|set| set.is_empty())
-            .unwrap_or(true);
-
-        let set = server.uid_clients.entry(uid.to_string()).or_default();
-        set.insert(client_id.to_string());
-
-        // 如果是首个连接，触发 user.online 事件 / Emit user.online if first connection
-        if is_first_connection {
-            let event = serde_json::json!({
-                "uid": uid,
-                "client_id": client_id,
-                "timestamp": chrono::Utc::now().timestamp_millis(),
-            });
-            if let Err(e) = server
-                .plugin_registry
-                .emit_custom("user.online", &event)
-                .await
-            {
-                tracing::warn!("plugin user.online event error: {}", e);
-            }
-        }
-
-        let _ = server.deliver_offline_for_uid(uid, client_id).await;
-        Ok(())
+        VAuthPlugin::apply(&self.inner, server, client_id, uid).await
     }
 }
 

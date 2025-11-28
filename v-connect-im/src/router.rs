@@ -4,4 +4,3 @@ use actix_web::web;
 pub fn configure(cfg: &mut web::ServiceConfig) {
     crate::api_registry::configure(cfg);
 }
-

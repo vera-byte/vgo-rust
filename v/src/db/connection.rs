@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::time::Duration;
 use tokio::sync::RwLock;
 
+use async_trait::async_trait;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{Pool, Postgres};
-use async_trait::async_trait;
 
 use crate::comm::config::get_global_config_manager;
 use crate::db::error::{DbError, Result};

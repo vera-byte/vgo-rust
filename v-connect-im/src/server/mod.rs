@@ -1,6 +1,7 @@
 use crate::cluster;
 use crate::plugins::auth::{AuthPlugin, DefaultAuthPlugin};
-use crate::plugins::bridge::RemotePluginManager;
+use crate::plugins::runtime::PluginRuntimeManager;
+use crate::plugins::test::TestPluginManager;
 use crate::plugins::{Plugin, PluginRegistry};
 use crate::storage;
 use dashmap::{DashMap, DashSet};
@@ -29,8 +30,9 @@ pub struct VConnectIMServer {
     pub auth_config: Option<crate::config::AuthConfigLite>,       // 鉴权配置 / Auth configuration
     pub auth_plugin: Arc<dyn AuthPlugin>,                         // 授权插件 / Auth plugin
     pub plugin_registry: Arc<PluginRegistry>, // 通用插件注册中心 / Plugin registry
-    pub remote_plugins: Arc<RemotePluginManager>, // 远程插件管理 / Remote plugin manager
-    pub plugin_config: Arc<RwLock<Value>>,    // 插件配置快照 / Plugin config snapshot
+    pub plugin_runtime_manager: Option<Arc<PluginRuntimeManager>>, // 插件运行时管理器 / Plugin runtime manager
+    pub test_plugin_manager: Option<Arc<TestPluginManager>>, // 测试插件管理器 / Test plugin manager
+    pub plugin_config: Arc<RwLock<Value>>, // 插件配置快照 / Plugin config snapshot
     pub acked_ids: Arc<DashMap<String, DashSet<String>>>, // 已确认消息ID / Acked message IDs per client
     pub node_id: String,                                  // 当前节点ID / Current node ID
     pub directory: Arc<cluster::directory::Directory>,    // 目录服务 / Directory service
@@ -58,7 +60,6 @@ impl VConnectIMServer {
             "node-local".to_string(),
         ));
         let plugin_registry = Arc::new(PluginRegistry::new());
-        let remote_plugins = Arc::new(RemotePluginManager::new());
         let auth_plugin: Arc<dyn AuthPlugin> = Arc::new(DefaultAuthPlugin::new());
         Self {
             connections: Arc::new(DashMap::new()),
@@ -66,7 +67,8 @@ impl VConnectIMServer {
             auth_config: None,
             auth_plugin,
             plugin_registry,
-            remote_plugins,
+            plugin_runtime_manager: None,
+            test_plugin_manager: None,
             plugin_config: Arc::new(RwLock::new(Value::Null)),
             acked_ids: Arc::new(DashMap::new()),
             node_id: "node-local".to_string(),
@@ -148,6 +150,18 @@ impl VConnectIMServer {
         self.raft = raft;
         self
     }
+
+    /// 设置测试插件管理器 / Set test plugin manager
+    pub fn with_test_plugin_manager(mut self, manager: Arc<TestPluginManager>) -> Self {
+        self.test_plugin_manager = Some(manager);
+        self
+    }
+
+    /// 设置插件运行时管理器 / Set plugin runtime manager
+    pub fn with_plugin_runtime_manager(mut self, manager: Arc<PluginRuntimeManager>) -> Self {
+        self.plugin_runtime_manager = Some(manager);
+        self
+    }
 }
 
 /// 便捷克隆 / Convenience clone
@@ -159,7 +173,8 @@ impl Clone for VConnectIMServer {
             auth_config: self.auth_config.clone(),
             auth_plugin: self.auth_plugin.clone(),
             plugin_registry: self.plugin_registry.clone(),
-            remote_plugins: self.remote_plugins.clone(),
+            plugin_runtime_manager: self.plugin_runtime_manager.clone(),
+            test_plugin_manager: self.test_plugin_manager.clone(),
             plugin_config: self.plugin_config.clone(),
             acked_ids: self.acked_ids.clone(),
             node_id: self.node_id.clone(),

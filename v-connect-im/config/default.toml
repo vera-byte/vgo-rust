@@ -38,6 +38,24 @@ peers = ""
 [plugins]
 trace_enabled = 0
 trace_log_payload = 0
-bridge_enabled = 1
-bridge_callback_timeout_ms = 1500
 sensitive_words = []
+
+# 插件安装配置 / Plugin installation configuration
+# 支持从 URL 自动下载并安装插件 / Support automatic download and install plugins from URL
+# 变量支持: ${os} (操作系统: darwin/linux/windows), ${arch} (架构: amd64/arm64)
+# Variable support: ${os} (OS: darwin/linux/windows), ${arch} (arch: amd64/arm64)
+# 示例: "https://github.com/WuKongIM/plugins/releases/download/latest/wk.plugin.ai-example-${os}-${arch}.wkp"
+# Example: "https://github.com/WuKongIM/plugins/releases/download/latest/wk.plugin.ai-example-${os}-${arch}.wkp"
+# install = [
+#     "https://github.com/WuKongIM/plugins/releases/download/latest/wk.plugin.ai-example-${os}-${arch}.wkp"
+# ]
+install = [
+    "file://../v-connect-im-plugin-example/wk.plugin.example-darwin-arm64.vp",
+]
+# 插件存储目录 / Plugin storage directory
+plugin_dir = "./plugins"
+
+# Unix Socket 通信地址（用于本地插件） / Unix Socket communication address (for local plugins)
+# 如果配置此路径，将启动 Unix Socket 服务器用于与本地插件通信
+# If configured, will start Unix Socket server for local plugin communication
+# socket_path = "./plugins/wukongim.sock"

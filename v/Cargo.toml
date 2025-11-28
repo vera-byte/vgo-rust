@@ -6,12 +6,7 @@ edition = "2021"
 
 [features]
 default = ["config", "web_actix"]
-config = [
-    "dep:config",
-    "dep:lazy_static",
-    "dep:serde",
-    "dep:serde_json",
-]
+config = ["dep:config", "dep:lazy_static", "dep:serde", "dep:serde_json"]
 web_actix = ["dep:actix-web"]
 
 [dependencies]
@@ -20,7 +15,7 @@ tokio = { version = "1", features = ["full"] }
 sqlx = { version = "0.7", default-features = false, features = [
     "runtime-tokio-native-tls",
     "postgres",
-    "chrono"
+    "chrono",
 ] }
 thiserror = "2"
 config = { version = "0.15.18", optional = true }
@@ -38,5 +33,9 @@ reqwest = { version = "0.11", features = ["json"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 tracing-log = "0.1"
+flate2 = "1"
+tar = "0.4"
+anyhow = "1"
+parking_lot = "0.12"
 
 [dev-dependencies]

@@ -1,8 +1,8 @@
 use crate::model::user::User;
 use crate::repo::user_repo::{self};
-use thiserror::Error;
 use sa_token_plugin_actix_web::StpUtil;
 use serde_json::json;
+use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum ServiceError {

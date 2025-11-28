@@ -39,17 +39,37 @@ pub async fn handle_connection(
         }
     });
 
-    let connection = Connection { client_id: client_id.clone(), uid: None, addr: peer_addr, sender: tx, last_heartbeat: Arc::new(std::sync::Mutex::new(std::time::Instant::now())) };
+    let connection = Connection {
+        client_id: client_id.clone(),
+        uid: None,
+        addr: peer_addr,
+        sender: tx,
+        last_heartbeat: Arc::new(std::sync::Mutex::new(std::time::Instant::now())),
+    };
     connections.insert(client_id.clone(), connection);
-    server.directory.register_client_location(&client_id, &server.node_id);
+    server
+        .directory
+        .register_client_location(&client_id, &server.node_id);
     tracing::info!("✅ Client {} connected from {}", client_id, peer_addr);
 
-    crate::service::webhook::send_client_online_webhook(&server, &client_id, &None, &peer_addr).await;
+    crate::service::webhook::send_client_online_webhook(&server, &client_id, &None, &peer_addr)
+        .await;
     let welcome_text = "Welcome to v-connect-im Server".to_string();
-    let welcome_msg = crate::domain::message::ConnectResponse { status: "connected".to_string(), message: welcome_text };
-    server.send_message_to_client(&client_id, Message::Text(serde_json::to_string(&welcome_msg)?)).await?;
+    let welcome_msg = crate::domain::message::ConnectResponse {
+        status: "connected".to_string(),
+        message: welcome_text,
+    };
+    server
+        .send_message_to_client(
+            &client_id,
+            Message::Text(serde_json::to_string(&welcome_msg)?),
+        )
+        .await?;
 
-    let auth_deadline_ms: u64 = v::get_global_config_manager().ok().map(|cm| cm.get_or("auth.deadline_ms", 1000_u64)).unwrap_or(1000);
+    let auth_deadline_ms: u64 = v::get_global_config_manager()
+        .ok()
+        .map(|cm| cm.get_or("auth.deadline_ms", 1000_u64))
+        .unwrap_or(1000);
     {
         let watchdog_client = client_id.clone();
         let watchdog_connections = connections.clone();
@@ -60,7 +80,10 @@ pub async fn handle_connection(
                 if conn.uid.is_none() {
                     let _ = watchdog_server.send_close_message(&watchdog_client).await;
                     watchdog_connections.remove(&watchdog_client);
-                    tracing::warn!("disconnecting unauthenticated client_id={}", watchdog_client);
+                    tracing::warn!(
+                        "disconnecting unauthenticated client_id={}",
+                        watchdog_client
+                    );
                 }
             }
         });
@@ -69,7 +92,12 @@ pub async fn handle_connection(
     while let Some(msg) = ws_receiver.next().await {
         match msg {
             Ok(message) => {
-                if let Err(e) = server.handle_incoming_message(message, &client_id, &connections).await { tracing::error!("Error handling message from {}: {}", client_id, e); }
+                if let Err(e) = server
+                    .handle_incoming_message(message, &client_id, &connections)
+                    .await
+                {
+                    tracing::error!("Error handling message from {}: {}", client_id, e);
+                }
             }
             Err(e) => {
                 tracing::error!("WebSocket error from {}: {}", client_id, e);
@@ -82,9 +110,26 @@ pub async fn handle_connection(
     send_task.abort();
     tracing::info!("👋 Client {} disconnected", client_id);
     if let Some((_, connection)) = connection_info {
-        let connected_at = chrono::Utc::now().timestamp_millis() - connection.last_heartbeat.lock().unwrap().elapsed().as_millis() as i64;
-        crate::service::webhook::send_client_offline_webhook(&server, &client_id, &connection.uid, &connection.addr, connected_at).await;
-        if let Some(uid) = &connection.uid { if let Some(set) = server.uid_clients.get_mut(uid) { set.remove(&client_id); } }
+        let connected_at = chrono::Utc::now().timestamp_millis()
+            - connection
+                .last_heartbeat
+                .lock()
+                .unwrap()
+                .elapsed()
+                .as_millis() as i64;
+        crate::service::webhook::send_client_offline_webhook(
+            &server,
+            &client_id,
+            &connection.uid,
+            &connection.addr,
+            connected_at,
+        )
+        .await;
+        if let Some(uid) = &connection.uid {
+            if let Some(set) = server.uid_clients.get_mut(uid) {
+                set.remove(&client_id);
+            }
+        }
     }
     Ok(())
 }

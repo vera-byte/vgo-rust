@@ -12,7 +12,9 @@ pub struct NodeInfo {
 /// HRW一致性哈希选择节点 / HRW consistent hashing node selection
 #[allow(dead_code)]
 pub fn hrw_select_node(key: &str, nodes: &[NodeInfo]) -> Option<NodeInfo> {
-    if nodes.is_empty() { return None; }
+    if nodes.is_empty() {
+        return None;
+    }
     let mut best: Option<(u128, NodeInfo)> = None;
     for n in nodes.iter().filter(|n| n.is_alive) {
         let mut hasher = Sha256::new();

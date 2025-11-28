@@ -1,14 +1,14 @@
 use dashmap::DashMap;
 use std::sync::Arc;
 
-use crate::VConnectIMServer;
 use super::router::NodeInfo;
+use crate::VConnectIMServer;
 
 /// 目录服务 / Directory service
 #[derive(Clone)]
 pub struct Directory {
-    pub nodes: Arc<DashMap<String, NodeInfo>>,           // 节点元信息 / Node metadata
-    pub clients: Arc<DashMap<String, String>>,           // 客户端到节点映射 / Client -> node
+    pub nodes: Arc<DashMap<String, NodeInfo>>, // 节点元信息 / Node metadata
+    pub clients: Arc<DashMap<String, String>>, // 客户端到节点映射 / Client -> node
     pub servers: Arc<DashMap<String, Arc<VConnectIMServer>>>, // 节点到服务器实例 / Node -> server
 }
 
@@ -37,7 +37,8 @@ impl Directory {
     }
 
     pub fn register_client_location(&self, client_id: &str, node_id: &str) {
-        self.clients.insert(client_id.to_string(), node_id.to_string());
+        self.clients
+            .insert(client_id.to_string(), node_id.to_string());
     }
 
     pub fn locate_client(&self, client_id: &str) -> Option<String> {

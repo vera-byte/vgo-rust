@@ -41,6 +41,13 @@ async-raft = { version = "0.6", optional = true }
 quiche = { version = "0.17", optional = true }
 rand = "0.8"
 parking_lot = "0.12"
+tonic = { version = "0.11", features = ["prost"] }
+prost = "0.13"
+prost-types = "0.13"
+flate2 = "1.0"
+tar = "0.4"
+tempfile = { version = "3.8", optional = true }
 
 [build-dependencies]
 v = { path = "../v" }
+tonic-build = { version = "0.11", features = ["prost"] }

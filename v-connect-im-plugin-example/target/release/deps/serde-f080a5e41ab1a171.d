@@ -1,0 +1,14 @@
+/Users/mac/workspace/vgo-rust/v-connect-im-plugin-example/target/release/deps/serde-f080a5e41ab1a171.d: /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/mac/workspace/vgo-rust/v-connect-im-plugin-example/target/release/build/serde-4135d59f04efbdca/out/private.rs
+
+/Users/mac/workspace/vgo-rust/v-connect-im-plugin-example/target/release/deps/libserde-f080a5e41ab1a171.rlib: /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/mac/workspace/vgo-rust/v-connect-im-plugin-example/target/release/build/serde-4135d59f04efbdca/out/private.rs
+
+/Users/mac/workspace/vgo-rust/v-connect-im-plugin-example/target/release/deps/libserde-f080a5e41ab1a171.rmeta: /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/mac/workspace/vgo-rust/v-connect-im-plugin-example/target/release/build/serde-4135d59f04efbdca/out/private.rs
+
+/Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs:
+/Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs:
+/Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs:
+/Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs:
+/Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs:
+/Users/mac/workspace/vgo-rust/v-connect-im-plugin-example/target/release/build/serde-4135d59f04efbdca/out/private.rs:
+
+# env-dep:OUT_DIR=/Users/mac/workspace/vgo-rust/v-connect-im-plugin-example/target/release/build/serde-4135d59f04efbdca/out

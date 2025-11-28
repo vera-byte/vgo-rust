@@ -1,6 +1,6 @@
-use v::db::error::Result;
 use std::time::Duration;
 use tracing::info;
+use v::db::error::Result;
 use v::db::query::QueryPg;
 
 fn expand_sql_with_binds(sql: &str, binds: &[String]) -> String {

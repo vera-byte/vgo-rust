@@ -1,6 +1,6 @@
 use anyhow::Result;
-use tokio::net::TcpListener;
 use std::sync::Arc;
+use tokio::net::TcpListener;
 use tracing::info;
 
 use crate::server::VConnectIMServer;
@@ -30,7 +30,10 @@ impl VConnectIMServer {
             let server = self.clone();
 
             tokio::spawn(async move {
-                if let Err(e) = crate::ws::connection::handle_connection(stream, peer_addr, connections, server).await {
+                if let Err(e) =
+                    crate::ws::connection::handle_connection(stream, peer_addr, connections, server)
+                        .await
+                {
                     tracing::error!("Connection error from {}: {}", peer_addr, e);
                 }
             });
@@ -39,4 +42,3 @@ impl VConnectIMServer {
         Ok(())
     }
 }
-

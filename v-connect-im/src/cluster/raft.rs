@@ -1,13 +1,16 @@
-use std::sync::{Arc, RwLock};
-use dashmap::DashMap;
 use anyhow::Result;
+use dashmap::DashMap;
+use std::sync::{Arc, RwLock};
 
 use super::directory::Directory;
 use crate::storage::MessageRecord;
 
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Role { Leader, Follower } // 角色枚举（当前未使用）/ Role enum (currently unused)
+pub enum Role {
+    Leader,
+    Follower,
+} // 角色枚举（当前未使用）/ Role enum (currently unused)
 
 #[derive(Clone)]
 pub struct RaftCluster {
@@ -27,7 +30,9 @@ impl RaftCluster {
 
     #[allow(dead_code)]
     pub fn set_leader(&self, leader_id: String) {
-        if let Ok(mut l) = self.leader_id.write() { *l = leader_id; }
+        if let Ok(mut l) = self.leader_id.write() {
+            *l = leader_id;
+        }
     }
 
     pub fn get_leader(&self) -> String {
@@ -36,7 +41,9 @@ impl RaftCluster {
 
     pub fn append_entry_as(&self, node_id: &str, rec: &MessageRecord) -> Result<()> {
         let leader = self.get_leader();
-        if node_id != leader { return Err(anyhow::anyhow!("not leader")); }
+        if node_id != leader {
+            return Err(anyhow::anyhow!("not leader"));
+        }
 
         let nodes = self.directory.list_nodes();
         let total = nodes.len().max(1);
@@ -50,9 +57,13 @@ impl RaftCluster {
             return Err(anyhow::anyhow!("server not registered"));
         }
         for n in nodes {
-            if n.node_id == node_id { continue; }
+            if n.node_id == node_id {
+                continue;
+            }
             if let Some(server) = self.directory.get_server(&n.node_id) {
-                if server.storage.append(rec).is_ok() { acks += 1; }
+                if server.storage.append(rec).is_ok() {
+                    acks += 1;
+                }
             }
         }
         if acks >= quorum as u64 {

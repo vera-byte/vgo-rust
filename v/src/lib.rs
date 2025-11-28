@@ -16,6 +16,8 @@ pub mod response;
 pub mod repo;
 pub use crate::repo::*;
 
+pub mod plugin;
+
 // 健康检查接口与状态定义（统一对外暴露）
 // Health check interface and status definitions (unified public exposure)
 use async_trait::async_trait;

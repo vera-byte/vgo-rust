@@ -1,10 +1,10 @@
 use config::{Config, ConfigBuilder, Environment, File, FileFormat};
-use tracing::info;
 use lazy_static::lazy_static;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use thiserror::Error;
+use tracing::info;
 
 pub type Result<T> = std::result::Result<T, ConfigError>;
 
@@ -247,7 +247,11 @@ impl ConfigManager {
         info!("配置源信息:");
         info!("============");
         for (index, info) in self.sources_info.iter().enumerate() {
-            let status = if info.loaded { "✓ 已加载" } else { "✗ 失败" };
+            let status = if info.loaded {
+                "✓ 已加载"
+            } else {
+                "✗ 失败"
+            };
             info!(
                 "{}. {} - {} (优先级: {})",
                 index + 1,
@@ -439,11 +443,12 @@ pub fn init_global_config_with_file(path: &str) -> Result<()> {
         format: None, // 自动检测格式 / auto-detect format
         required: true,
     }])?;
-    let mut global = GLOBAL_CONFIG_MANAGER
-        .write()
-        .map_err(|e| ConfigError::InitializationError {
-            message: format!("获取全局配置管理器写锁失败: {}", e),
-        })?;
+    let mut global =
+        GLOBAL_CONFIG_MANAGER
+            .write()
+            .map_err(|e| ConfigError::InitializationError {
+                message: format!("获取全局配置管理器写锁失败: {}", e),
+            })?;
     *global = Some(Arc::new(manager));
     Ok(())
 }

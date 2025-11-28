@@ -22,24 +22,21 @@ impl VConnectIMServer {
                         *text = serde_json::to_string(&outgoing)?;
                     }
                     Ok(PluginFlow::Stop) => {
-                        debug!(
-                            "message suppressed by plugin for client {}",
-                            client_id
-                        );
+                        debug!("message suppressed by plugin for client {}", client_id);
                         return Ok(());
                     }
                     Err(e) => {
-                        error!(
-                            "plugin outgoing error for client {}: {}",
-                            client_id, e
-                        );
+                        error!("plugin outgoing error for client {}: {}", client_id, e);
                         return Err(e);
                     }
                 }
             }
         }
         if let Some(connection) = self.connections.get(client_id) {
-            connection.sender.send(message).map_err(|e| anyhow::anyhow!("Failed to send message: {}", e))?;
+            connection
+                .sender
+                .send(message)
+                .map_err(|e| anyhow::anyhow!("Failed to send message: {}", e))?;
             debug!("📤 Sent message to client {}", client_id);
             Ok(())
         } else {
@@ -58,21 +55,34 @@ impl VConnectIMServer {
             debug!("🔒 Sent close message to client {}", client_id);
             Ok(())
         } else {
-            Err(anyhow::anyhow!("Client {} not found for close message", client_id))
+            Err(anyhow::anyhow!(
+                "Client {} not found for close message",
+                client_id
+            ))
         }
     }
 
     /// 广播文本消息 / Broadcast text message
     pub async fn broadcast_message(&self, message: Message) -> Result<()> {
-        let message_str = match &message { Message::Text(text) => text.clone(), _ => return Ok(()) };
+        let message_str = match &message {
+            Message::Text(text) => text.clone(),
+            _ => return Ok(()),
+        };
         let mut disconnected_clients = Vec::new();
         for entry in self.connections.iter() {
             let client_id = entry.key().clone();
             let connection = entry.value();
-            if connection.sender.send(Message::Text(message_str.clone())).is_err() { disconnected_clients.push(client_id); }
+            if connection
+                .sender
+                .send(Message::Text(message_str.clone()))
+                .is_err()
+            {
+                disconnected_clients.push(client_id);
+            }
         }
-        for client_id in disconnected_clients { self.connections.remove(&client_id); }
+        for client_id in disconnected_clients {
+            self.connections.remove(&client_id);
+        }
         Ok(())
     }
 }
-

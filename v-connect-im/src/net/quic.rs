@@ -184,8 +184,12 @@ impl QuicServer {
                                                             .server
                                                             .auth_plugin
                                                             .as_ref()
-                                                            .apply(self.server.as_ref(), client_id, uid)
-                                                        .await;
+                                                            .apply(
+                                                                self.server.as_ref(),
+                                                                client_id,
+                                                                uid,
+                                                            )
+                                                            .await;
                                                         tracing::info!(
                                                             "QUIC auth ok client_id={} uid={}",
                                                             client_id,

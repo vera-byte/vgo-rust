@@ -1,26 +1,25 @@
-use crate::server::VConnectIMServer;
 use crate::config::WebhookConfigLite as WebhookConfig;
 use crate::domain::message::{
-    WebhookEvent,
-    WebhookEventType,
-    WebhookClientStatusData,
-    WebhookMessageData,
+    WebhookClientStatusData, WebhookEvent, WebhookEventType, WebhookMessageData,
 };
+use crate::server::VConnectIMServer;
 use anyhow::Result;
 use tracing::{error, info, warn};
 
 // 发送Webhook事件 / Send Webhook Event
-pub async fn send_webhook_event(server: &VConnectIMServer, event_type: WebhookEventType, data: serde_json::Value) {
+pub async fn send_webhook_event(
+    server: &VConnectIMServer,
+    event_type: WebhookEventType,
+    data: serde_json::Value,
+) {
     let event_key = format!("webhook.{}", format!("{:?}", event_type).to_lowercase());
-    if let Err(e) = server
-        .plugin_registry
-        .emit_custom(&event_key, &data)
-        .await
-    {
+    if let Err(e) = server.plugin_registry.emit_custom(&event_key, &data).await {
         warn!("plugin custom event error: {}", e);
     }
     if let Some(webhook_config) = &server.webhook_config {
-        if !webhook_config.enabled { return; }
+        if !webhook_config.enabled {
+            return;
+        }
         let event = WebhookEvent {
             event_type: event_type.clone(),
             event_id: uuid::Uuid::new_v4().to_string(),
@@ -38,27 +37,41 @@ pub async fn send_webhook_event(server: &VConnectIMServer, event_type: WebhookEv
 }
 
 // 交付Webhook事件到第三方服务器 / Deliver Webhook Event to Third-party Server
-pub async fn deliver_webhook_event(webhook_config: WebhookConfig, event: WebhookEvent) -> Result<()> {
-    if webhook_config.url.is_none() { return Ok(()); }
+pub async fn deliver_webhook_event(
+    webhook_config: WebhookConfig,
+    event: WebhookEvent,
+) -> Result<()> {
+    if webhook_config.url.is_none() {
+        return Ok(());
+    }
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_millis(webhook_config.timeout_ms))
         .build()
         .map_err(|e| anyhow::anyhow!("Failed to build HTTP client: {}", e))?;
 
-    let mut request = client.post(webhook_config.url.as_ref().unwrap()).json(&event);
+    let mut request = client
+        .post(webhook_config.url.as_ref().unwrap())
+        .json(&event);
     if let Some(secret) = &webhook_config.secret {
         let signature = generate_webhook_signature(&event, secret);
         request = request.header("X-VConnectIM-Signature", signature);
     }
 
-    let response = request.send().await.map_err(|e| anyhow::anyhow!("Webhook request failed: {}", e))?;
+    let response = request
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Webhook request failed: {}", e))?;
     if response.status().is_success() {
         info!("✅ Webhook event {} delivered successfully", event.event_id);
         Ok(())
     } else {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
-        Err(anyhow::anyhow!("Webhook delivery failed with status {}: {}", status, body))
+        Err(anyhow::anyhow!(
+            "Webhook delivery failed with status {}: {}",
+            status,
+            body
+        ))
     }
 }
 
@@ -73,7 +86,8 @@ pub fn generate_webhook_signature(event: &WebhookEvent, secret: &str) -> String 
         "timestamp": event.timestamp,
     })
     .to_string();
-    let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
+    let mut mac =
+        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
     mac.update(payload.as_bytes());
     let result = mac.finalize();
     let code_bytes = result.into_bytes();
@@ -81,7 +95,12 @@ pub fn generate_webhook_signature(event: &WebhookEvent, secret: &str) -> String 
 }
 
 // 发送客户端上线Webhook事件 / Send Client Online Webhook Event
-pub async fn send_client_online_webhook(server: &VConnectIMServer, client_id: &str, uid: &Option<String>, addr: &std::net::SocketAddr) {
+pub async fn send_client_online_webhook(
+    server: &VConnectIMServer,
+    client_id: &str,
+    uid: &Option<String>,
+    addr: &std::net::SocketAddr,
+) {
     let data = serde_json::json!(WebhookClientStatusData {
         client_id: client_id.to_string(),
         uid: uid.clone(),
@@ -94,7 +113,13 @@ pub async fn send_client_online_webhook(server: &VConnectIMServer, client_id: &s
 }
 
 // 发送客户端离线Webhook事件 / Send Client Offline Webhook Event
-pub async fn send_client_offline_webhook(server: &VConnectIMServer, client_id: &str, uid: &Option<String>, addr: &std::net::SocketAddr, connected_at: i64) {
+pub async fn send_client_offline_webhook(
+    server: &VConnectIMServer,
+    client_id: &str,
+    uid: &Option<String>,
+    addr: &std::net::SocketAddr,
+    connected_at: i64,
+) {
     let now = chrono::Utc::now().timestamp_millis();
     let online_duration_ms = (now - connected_at).max(0) as u64;
     let data = serde_json::json!(WebhookClientStatusData {
@@ -133,6 +158,10 @@ pub async fn send_message_webhook(
         delivered_at,
         delivery_status: delivery_status.to_string(),
     });
-    let event_type = match delivery_status { "delivered" => WebhookEventType::MessageDelivered, "failed" => WebhookEventType::MessageFailed, _ => WebhookEventType::MessageSent };
+    let event_type = match delivery_status {
+        "delivered" => WebhookEventType::MessageDelivered,
+        "failed" => WebhookEventType::MessageFailed,
+        _ => WebhookEventType::MessageSent,
+    };
     send_webhook_event(server, event_type, data).await;
 }

@@ -1,9 +1,12 @@
 //! 插件系统入口 / Plugin system entry
 
 pub mod auth;
-pub mod bridge;
+pub mod installer;
+pub mod runtime;
 pub mod sensitive;
+pub mod test;
 pub mod trace;
+pub mod v_adapters;
 
 use crate::domain::message::ImMessage;
 use crate::server::VConnectIMServer;

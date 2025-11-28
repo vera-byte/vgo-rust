@@ -1,14 +1,13 @@
 use actix_web::middleware::Logger;
 use actix_web::{web, App, HttpServer};
-use thiserror::Error;
 use sa_token_plugin_actix_web::{SaTokenMiddleware, SaTokenState};
+use thiserror::Error;
 use tracing::info;
 use v::db::connection::{check_health, get_pool};
 use v_auth_center::config::sa_token_conf::init_sa_token;
 mod api_registry {
     include!(concat!(env!("OUT_DIR"), "/api_registry.rs"));
 }
-
 
 #[derive(Debug, Error)]
 enum AppError {
@@ -70,7 +69,15 @@ async fn main() -> Result<(), AppError> {
     })
     .bind(addr.clone())?;
 
-    let server_builder = if let Some(w) = workers { if w > 0 { server_builder.workers(w as usize) } else { server_builder } } else { server_builder };
+    let server_builder = if let Some(w) = workers {
+        if w > 0 {
+            server_builder.workers(w as usize)
+        } else {
+            server_builder
+        }
+    } else {
+        server_builder
+    };
     let server = server_builder.shutdown_timeout(5).run();
 
     let pool = get_pool("default").await?;

@@ -27,7 +27,9 @@ pub async fn info(id: i64) -> Result<Option<crate::model::user::User>> {
         .fetch_one_json()
         .await;
     match v {
-        Ok(val) => Ok(Some(serde_json::from_value::<crate::model::user::User>(val)?)),
+        Ok(val) => Ok(Some(serde_json::from_value::<crate::model::user::User>(
+            val,
+        )?)),
         Err(_) => Ok(None),
     }
 }

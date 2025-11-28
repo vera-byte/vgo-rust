@@ -1,4 +1,7 @@
-use actix_web::{http::{StatusCode, header}, HttpResponse};
+use actix_web::{
+    http::{header, StatusCode},
+    HttpResponse,
+};
 
 // 通用 HTTP 响应封装（支持 JSON、文本、二进制）
 // Generic HTTP response helpers (supports JSON, text, binary)
