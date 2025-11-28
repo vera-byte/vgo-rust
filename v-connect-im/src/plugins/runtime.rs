@@ -13,6 +13,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
+use tokio::sync::watch;
 use tokio::process::{Child, Command};
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
@@ -406,6 +407,7 @@ impl PluginRuntimeManager {
 pub struct UnixSocketServer {
     listener: UnixListener,
     plugin_manager: Arc<PluginRuntimeManager>,
+    shutdown_rx: watch::Receiver<bool>, // 关闭信号 / Shutdown signal
 }
 
 impl UnixSocketServer {
@@ -413,6 +415,7 @@ impl UnixSocketServer {
     pub async fn new(
         socket_path: impl AsRef<Path>,
         plugin_manager: Arc<PluginRuntimeManager>,
+        shutdown_rx: watch::Receiver<bool>,
     ) -> Result<Self> {
         // 删除已存在的 socket / Remove existing socket
         let socket_path = socket_path.as_ref();
@@ -432,27 +435,40 @@ impl UnixSocketServer {
         Ok(Self {
             listener,
             plugin_manager,
+            shutdown_rx,
         })
     }
 
     /// 运行服务器 / Run server
     pub async fn run(&self) -> Result<()> {
+        let mut rx = self.shutdown_rx.clone();
         loop {
-            match self.listener.accept().await {
-                Ok((stream, _)) => {
-                    let manager = self.plugin_manager.clone();
-                    tokio::spawn(async move {
-                        if let Err(e) = Self::handle_connection(stream, manager).await {
-                            error!("Error handling Unix Socket connection: {}", e);
+            tokio::select! {
+                res = self.listener.accept() => {
+                    match res {
+                        Ok((stream, _)) => {
+                            let manager = self.plugin_manager.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = Self::handle_connection(stream, manager).await {
+                                    error!("Error handling Unix Socket connection: {}", e);
+                                }
+                            });
                         }
-                    });
+                        Err(e) => {
+                            // 接受连接错误（可能在关闭期间出现）/ Accept error (may occur during shutdown)
+                            error!("Error accepting Unix Socket connection: {}", e);
+                        }
+                    }
                 }
-                Err(e) => {
-                    // 接受连接错误（可能在关闭期间出现）/ Accept error (may occur during shutdown)
-                    error!("Error accepting Unix Socket connection: {}", e);
+                _ = rx.changed() => {
+                    if *rx.borrow() {
+                        info!("🛑 Unix Socket server shutdown signal received");
+                        break;
+                    }
                 }
             }
         }
+        Ok(())
     }
 
     /// 处理连接 / Handle connection

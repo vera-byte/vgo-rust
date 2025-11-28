@@ -1597,9 +1597,11 @@ async fn main() -> Result<()> {
         .unwrap_or_else(|| format!("{}/sockets/runtime.sock", plugin_dir));
     runtime_manager.set_global_socket_path(&socket_path);
     let runtime_manager_arc = Arc::new(runtime_manager);
+    // 全局关闭通道（供各子系统共享）/ Global shutdown channel for subsystems
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     use crate::plugins::runtime::UnixSocketServer;
     let socket_server_task =
-        match UnixSocketServer::new(&socket_path, runtime_manager_arc.clone()).await {
+        match UnixSocketServer::new(&socket_path, runtime_manager_arc.clone(), shutdown_rx.clone()).await {
             Ok(server) => {
                 info!("🔌 Unix Socket server starting on: {}", socket_path);
                 Some(tokio::spawn(async move {
@@ -1661,7 +1663,6 @@ async fn main() -> Result<()> {
     // 启动WebSocket服务器 / Start WebSocket server
     let ws_server = server.clone();
     let ws_host = host.clone();
-    let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false); // 关闭信号 / Shutdown signal
     let mut ws_shutdown_rx = shutdown_rx.clone();
     let ws_future = async move {
         info!("🚀 Starting WebSocket server on {}:{}", ws_host, ws_port);
@@ -1698,12 +1699,12 @@ async fn main() -> Result<()> {
         _ = ws_future => {
             info!("WebSocket server stopped");
             let _ = shutdown_tx.send(true);
-            if let Some(handle) = &socket_task { handle.abort(); }
+            // 让 Unix Socket server 自行接收关闭并退出 / Let socket server exit via shutdown
         }
         _ = http_future => {
             info!("HTTP server stopped");
             let _ = shutdown_tx.send(true);
-            if let Some(handle) = &socket_task { handle.abort(); }
+            // 让 Unix Socket server 自行接收关闭并退出 / Let socket server exit via shutdown
         }
         _ = async {
             if let Some(handle) = socket_task.take() {
@@ -1718,7 +1719,7 @@ async fn main() -> Result<()> {
         _ = tokio::signal::ctrl_c() => {
             info!("🛎️ Ctrl-C received, initiating shutdown");
             let _ = shutdown_tx.send(true);
-            if let Some(handle) = &socket_task { handle.abort(); }
+            // 让 Unix Socket server 自行接收关闭并退出 / Let socket server exit via shutdown
         }
     }
 

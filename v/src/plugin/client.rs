@@ -102,7 +102,7 @@ impl<H: PluginHandler> PluginClient<H> {
     async fn run_once(&mut self) -> Result<()> {
         self.wait_for_socket().await?;
         info!("[plugin:{}] connecting socket: {}", self.ident, self.socket_path);
-        let mut stream = UnixStream::connect(&self.socket_path).await?;
+        let mut stream = self.connect_with_retry().await?;
         info!("[plugin:{}] connected", self.ident);
         self.send_handshake(&mut stream).await?;
         self.listen_loop(&mut stream).await
@@ -129,6 +129,40 @@ impl<H: PluginHandler> PluginClient<H> {
             }
         }
         Ok(())
+    }
+
+    /// 带重试的连接（处理连接拒绝）/ Connect with retry (handle ECONNREFUSED)
+    async fn connect_with_retry(&mut self) -> Result<UnixStream> {
+        use std::io::ErrorKind;
+        let mut rx = self.shutdown_rx.clone();
+        let mut backoff = self.reconnect_backoff.0.min(500);
+        loop {
+            tokio::select! {
+                res = UnixStream::connect(&self.socket_path) => {
+                    match res {
+                        Ok(stream) => return Ok(stream),
+                        Err(e) => {
+                            if e.kind() == ErrorKind::ConnectionRefused {
+                                warn!("[plugin:{}] connect refused, retrying", self.ident);
+                                tokio::select! {
+                                    _ = sleep(Duration::from_millis(backoff)) => {},
+                                    _ = rx.changed() => {
+                                        if *rx.borrow() { return Err(anyhow::anyhow!("shutdown")); }
+                                    }
+                                }
+                                backoff = std::cmp::min(backoff * 2, self.reconnect_backoff.1);
+                                continue;
+                            } else {
+                                return Err(e.into());
+                            }
+                        }
+                    }
+                }
+                _ = rx.changed() => {
+                    if *rx.borrow() { return Err(anyhow::anyhow!("shutdown")); }
+                }
+            }
+        }
     }
 
     /// 发送握手信息 / Send handshake info
