@@ -24,6 +24,61 @@ impl VConnectIMServer {
             .clone()
             .unwrap_or_else(|| "message".to_string());
 
+        // 调用插件系统处理消息 / Call plugin system to process message
+        if let Some(pool) = self.plugin_connection_pool.as_ref() {
+            tracing::info!(
+                "🔌 调用插件系统处理消息 / Calling plugin system for message: {}",
+                message_id
+            );
+            let plugin_message = serde_json::json!({
+                "message_id": message_id,
+                "from_uid": request.from_uid,
+                "to_uid": request.to_uid,
+                "content": request.content,
+                "message_type": message_type,
+                "timestamp": delivered_at
+            });
+
+            match pool.broadcast_message_event(&plugin_message).await {
+                Ok(responses) => {
+                    tracing::info!(
+                        "✅ 插件处理响应数量 / Plugin response count: {}",
+                        responses.len()
+                    );
+                    tracing::debug!("插件处理响应详情 / Plugin responses: {:?}", responses);
+                    // 检查是否有插件要求停止消息传播 / Check if any plugin wants to stop propagation
+                    for (plugin_name, response) in responses {
+                        tracing::debug!(
+                            "插件 {} 响应 / Plugin {} response: {}",
+                            plugin_name,
+                            plugin_name,
+                            response
+                        );
+                        if let Some(flow) = response.get("flow").and_then(|v| v.as_str()) {
+                            if flow == "stop" {
+                                tracing::info!(
+                                    "🛑 消息被插件 {} 拦截 / Message stopped by plugin {}",
+                                    plugin_name,
+                                    plugin_name
+                                );
+                                return HttpSendMessageResponse {
+                                    success: false,
+                                    message: format!("Message blocked by plugin {}", plugin_name),
+                                    message_id: Some(message_id),
+                                    delivered_at: Some(delivered_at),
+                                };
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("❌ 插件系统调用失败 / Plugin system call failed: {}", e);
+                }
+            }
+        } else {
+            tracing::warn!("⚠️  插件连接池未初始化 / Plugin connection pool not initialized");
+        }
+
         let forward_msg = ImMessage {
             msg_type: "forwarded_message".to_string(),
             data: serde_json::json!({

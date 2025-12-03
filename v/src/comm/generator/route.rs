@@ -160,43 +160,194 @@ pub fn generate_api_artifacts(manifest_dir: &str, out_dir: &str) -> Result<(), G
             }
         }
     }
-    let mut openapi = String::new();
-    openapi.push_str("{\"openapi\":\"3.0.3\",\"info\":{\"title\":\"");
-    openapi.push_str(&crate_root);
-    openapi.push_str("\",\"version\":\"v1\"},\"paths\":{");
-    let mut first_path = true;
-    for (p, ms) in path_methods.iter() {
-        if !first_path {
-            openapi.push(',');
-        } else {
-            first_path = false;
-        }
-        openapi.push_str(&format!("\"{}\":{{", p));
-        let mut first_method = true;
-        for m in ms.iter() {
-            if !first_method {
-                openapi.push(',');
-            } else {
-                first_method = false;
+    // 使用 utoipa 生成 OpenAPI 文档 / Generate OpenAPI using utoipa
+    use utoipa::openapi::path::{OperationBuilder, ParameterBuilder, ParameterIn, PathItemBuilder};
+    use utoipa::openapi::schema::{ObjectBuilder, Schema, SchemaType};
+    use utoipa::openapi::{
+        ContentBuilder, InfoBuilder, OpenApiBuilder, PathsBuilder, RefOr, Response, ResponseBuilder,
+    };
+
+    let mut paths_builder = PathsBuilder::new();
+
+    for (path, methods) in path_methods.iter() {
+        let mut path_item_builder = PathItemBuilder::new();
+
+        // 提取路径参数 / Extract path parameters
+        let path_params = extract_path_parameters(path);
+
+        for method in methods {
+            let mut operation_builder = OperationBuilder::new();
+
+            // 添加路径参数 / Add path parameters
+            for param_name in &path_params {
+                let param = ParameterBuilder::new()
+                    .name(param_name)
+                    .parameter_in(ParameterIn::Path)
+                    .required(utoipa::openapi::Required::True)
+                    .schema(Some(
+                        ObjectBuilder::new()
+                            .schema_type(SchemaType::String)
+                            .description(Some(format!("Path parameter: {}", param_name)))
+                            .build(),
+                    ))
+                    .build();
+                operation_builder = operation_builder.parameter(param);
             }
-            openapi.push_str(&format!(
-                "\"{}\":{{\"responses\":{{\"200\":{{\"description\":\"OK\"}}}}}}",
-                m
-            ));
+
+            // 为 POST/PUT/PATCH 添加请求体 / Add request body for POST/PUT/PATCH
+            if matches!(method.as_str(), "post" | "put" | "patch") {
+                let request_schema = ObjectBuilder::new()
+                    .schema_type(SchemaType::Object)
+                    .description(Some("Request body"))
+                    .build();
+
+                let content = ContentBuilder::new().schema(request_schema).build();
+
+                let request_body = utoipa::openapi::request_body::RequestBodyBuilder::new()
+                    .content("application/json", content)
+                    .description(Some("Request payload"))
+                    .build();
+
+                operation_builder = operation_builder.request_body(Some(request_body));
+            }
+
+            // 添加查询参数（通用） / Add query parameters (generic)
+            if method.as_str() == "get" {
+                let query_param = ParameterBuilder::new()
+                    .name("page")
+                    .parameter_in(ParameterIn::Query)
+                    .required(utoipa::openapi::Required::False)
+                    .schema(Some(
+                        ObjectBuilder::new()
+                            .schema_type(SchemaType::Integer)
+                            .description(Some("Page number"))
+                            .build(),
+                    ))
+                    .build();
+                operation_builder = operation_builder.parameter(query_param);
+
+                let limit_param = ParameterBuilder::new()
+                    .name("limit")
+                    .parameter_in(ParameterIn::Query)
+                    .required(utoipa::openapi::Required::False)
+                    .schema(Some(
+                        ObjectBuilder::new()
+                            .schema_type(SchemaType::Integer)
+                            .description(Some("Items per page"))
+                            .build(),
+                    ))
+                    .build();
+                operation_builder = operation_builder.parameter(limit_param);
+            }
+
+            // 添加响应 / Add responses
+            let success_schema = ObjectBuilder::new()
+                .schema_type(SchemaType::Object)
+                .description(Some("Successful response"))
+                .property(
+                    "code",
+                    ObjectBuilder::new()
+                        .schema_type(SchemaType::Integer)
+                        .description(Some("Response code"))
+                        .build(),
+                )
+                .property(
+                    "message",
+                    ObjectBuilder::new()
+                        .schema_type(SchemaType::String)
+                        .description(Some("Response message"))
+                        .build(),
+                )
+                .property(
+                    "data",
+                    ObjectBuilder::new()
+                        .schema_type(SchemaType::Object)
+                        .description(Some("Response data"))
+                        .build(),
+                )
+                .required("code")
+                .required("message")
+                .build();
+
+            let success_content = ContentBuilder::new().schema(success_schema).build();
+
+            let success_response = ResponseBuilder::new()
+                .description("Successful response")
+                .content("application/json", success_content)
+                .build();
+
+            operation_builder = operation_builder
+                .response("200", success_response)
+                .response(
+                    "400",
+                    ResponseBuilder::new().description("Bad request").build(),
+                )
+                .response(
+                    "401",
+                    ResponseBuilder::new().description("Unauthorized").build(),
+                )
+                .response(
+                    "500",
+                    ResponseBuilder::new()
+                        .description("Internal server error")
+                        .build(),
+                );
+
+            let operation = operation_builder.build();
+
+            match method.as_str() {
+                "get" => {
+                    path_item_builder =
+                        path_item_builder.operation(utoipa::openapi::PathItemType::Get, operation)
+                }
+                "post" => {
+                    path_item_builder =
+                        path_item_builder.operation(utoipa::openapi::PathItemType::Post, operation)
+                }
+                "put" => {
+                    path_item_builder =
+                        path_item_builder.operation(utoipa::openapi::PathItemType::Put, operation)
+                }
+                "delete" => {
+                    path_item_builder = path_item_builder
+                        .operation(utoipa::openapi::PathItemType::Delete, operation)
+                }
+                "patch" => {
+                    path_item_builder =
+                        path_item_builder.operation(utoipa::openapi::PathItemType::Patch, operation)
+                }
+                _ => {}
+            }
         }
-        openapi.push('}');
+
+        paths_builder = paths_builder.path(path, path_item_builder.build());
     }
-    openapi.push_str("}}\n");
+
+    let openapi = OpenApiBuilder::new()
+        .info(
+            InfoBuilder::new()
+                .title(&crate_root)
+                .version("v1")
+                .description(Some("Auto-generated API documentation"))
+                .build(),
+        )
+        .paths(paths_builder.build())
+        .build();
+
+    let openapi_json = serde_json::to_string_pretty(&openapi)
+        .map_err(|e| GenError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+
     let openapi_out = Path::new(out_dir).join("openapi.json");
     let mut of = fs::File::create(openapi_out)?;
-    of.write_all(openapi.as_bytes())?;
+    of.write_all(openapi_json.as_bytes())?;
+
     let gen_out = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("src")
         .join("comm")
         .join("generator")
         .join("openapi.json");
     let mut of2 = fs::File::create(gen_out)?;
-    of2.write_all(openapi.as_bytes())?;
+    of2.write_all(openapi_json.as_bytes())?;
 
     let mut dirs: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
     let mut files: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
@@ -335,6 +486,36 @@ fn to_module_path(p: &PathBuf, crate_root: &str) -> String {
         }
     }
     parts.join("::")
+}
+
+/// 从路径中提取参数 / Extract parameters from path
+/// 例如 /user/{id}/posts/{post_id} -> ["id", "post_id"]
+fn extract_path_parameters(path: &str) -> Vec<String> {
+    let mut params = Vec::new();
+    let mut in_param = false;
+    let mut current_param = String::new();
+
+    for ch in path.chars() {
+        match ch {
+            '{' => {
+                in_param = true;
+                current_param.clear();
+            }
+            '}' => {
+                if in_param && !current_param.is_empty() {
+                    params.push(current_param.clone());
+                }
+                in_param = false;
+            }
+            _ => {
+                if in_param {
+                    current_param.push(ch);
+                }
+            }
+        }
+    }
+
+    params
 }
 
 fn detect_methods(s: &str) -> Vec<String> {

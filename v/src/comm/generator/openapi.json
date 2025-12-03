@@ -1,1 +1,1939 @@
-{"openapi":"3.0.3","info":{"title":"v_connect_im","version":"v1"},"paths":{"/health":{"get":{"responses":{"200":{"description":"OK"}}}},"/health/detailed":{"get":{"responses":{"200":{"description":"OK"}}}},"/health/live":{"get":{"responses":{"200":{"description":"OK"}}}},"/health/ready":{"get":{"responses":{"200":{"description":"OK"}}}},"/openapi":{"get":{"responses":{"200":{"description":"OK"}}}},"/v1/admin/quic/stats":{"get":{"responses":{"200":{"description":"OK"}}}},"/v1/admin/uid/block":{"post":{"responses":{"200":{"description":"OK"}}}},"/v1/admin/uid/rate_limit":{"post":{"responses":{"200":{"description":"OK"}}}},"/v1/connection/list":{"get":{"responses":{"200":{"description":"OK"}}}},"/v1/connection/ws_by_uid":{"get":{"responses":{"200":{"description":"OK"}}}},"/v1/internal/clients_by_uid":{"get":{"responses":{"200":{"description":"OK"}}}},"/v1/internal/forward_client":{"post":{"responses":{"200":{"description":"OK"}}}},"/v1/internal/has_client":{"get":{"responses":{"200":{"description":"OK"}}}},"/v1/message/broadcast":{"post":{"responses":{"200":{"description":"OK"}}}},"/v1/message/history":{"get":{"responses":{"200":{"description":"OK"}}}},"/v1/message/read":{"get":{"responses":{"200":{"description":"OK"}}},"post":{"responses":{"200":{"description":"OK"}}}},"/v1/message/send":{"post":{"responses":{"200":{"description":"OK"}}}},"/v1/message/status":{"get":{"responses":{"200":{"description":"OK"}}}},"/v1/offline/ack":{"post":{"responses":{"200":{"description":"OK"}}}},"/v1/offline/cleanup":{"post":{"responses":{"200":{"description":"OK"}}}},"/v1/offline/pull":{"get":{"responses":{"200":{"description":"OK"}}}},"/v1/plugins/runtime/list":{"get":{"responses":{"200":{"description":"OK"}}}},"/v1/room/create":{"post":{"responses":{"200":{"description":"OK"}}}},"/v1/room/join":{"post":{"responses":{"200":{"description":"OK"}}}},"/v1/room/leave":{"post":{"responses":{"200":{"description":"OK"}}}},"/v1/room/list":{"get":{"responses":{"200":{"description":"OK"}}}},"/v1/room/members":{"get":{"responses":{"200":{"description":"OK"}}}},"/v1/room/members_page":{"get":{"responses":{"200":{"description":"OK"}}}},"/v1/room/send":{"post":{"responses":{"200":{"description":"OK"}}}},"/v1/room/unread":{"get":{"responses":{"200":{"description":"OK"}}}}}}
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "v_connect_im",
+    "description": "Auto-generated API documentation",
+    "version": "v1"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Page number"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Items per page"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Successful response",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "description": "Response code"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "Response data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Response message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/health/detailed": {
+      "get": {
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Page number"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Items per page"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Successful response",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "description": "Response code"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "Response data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Response message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/health/live": {
+      "get": {
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Page number"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Items per page"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Successful response",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "description": "Response code"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "Response data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Response message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Page number"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Items per page"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Successful response",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "description": "Response code"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "Response data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Response message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/openapi": {
+      "get": {
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Page number"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Items per page"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Successful response",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "description": "Response code"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "Response data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Response message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/v1/admin/quic/stats": {
+      "get": {
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Page number"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Items per page"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Successful response",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "description": "Response code"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "Response data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Response message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/v1/admin/uid/block": {
+      "post": {
+        "requestBody": {
+          "description": "Request payload",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "Request body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Successful response",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "description": "Response code"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "Response data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Response message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/v1/admin/uid/rate_limit": {
+      "post": {
+        "requestBody": {
+          "description": "Request payload",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "Request body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Successful response",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "description": "Response code"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "Response data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Response message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/v1/connection/list": {
+      "get": {
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Page number"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Items per page"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Successful response",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "description": "Response code"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "Response data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Response message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/v1/connection/ws_by_uid": {
+      "get": {
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Page number"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Items per page"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Successful response",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "description": "Response code"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "Response data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Response message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/v1/internal/clients_by_uid": {
+      "get": {
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Page number"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Items per page"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Successful response",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "description": "Response code"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "Response data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Response message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/v1/internal/forward_client": {
+      "post": {
+        "requestBody": {
+          "description": "Request payload",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "Request body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Successful response",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "description": "Response code"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "Response data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Response message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/v1/internal/has_client": {
+      "get": {
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Page number"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Items per page"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Successful response",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "description": "Response code"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "Response data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Response message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/v1/message/broadcast": {
+      "post": {
+        "requestBody": {
+          "description": "Request payload",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "Request body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Successful response",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "description": "Response code"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "Response data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Response message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/v1/message/history": {
+      "get": {
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Page number"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Items per page"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Successful response",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "description": "Response code"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "Response data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Response message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/v1/message/read": {
+      "get": {
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Page number"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Items per page"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Successful response",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "description": "Response code"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "Response data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Response message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "post": {
+        "requestBody": {
+          "description": "Request payload",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "Request body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Successful response",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "description": "Response code"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "Response data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Response message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/v1/message/send": {
+      "post": {
+        "requestBody": {
+          "description": "Request payload",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "Request body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Successful response",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "description": "Response code"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "Response data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Response message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/v1/message/status": {
+      "get": {
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Page number"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Items per page"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Successful response",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "description": "Response code"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "Response data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Response message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/v1/offline/ack": {
+      "post": {
+        "requestBody": {
+          "description": "Request payload",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "Request body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Successful response",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "description": "Response code"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "Response data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Response message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/v1/offline/cleanup": {
+      "post": {
+        "requestBody": {
+          "description": "Request payload",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "Request body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Successful response",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "description": "Response code"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "Response data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Response message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/v1/offline/pull": {
+      "get": {
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Page number"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Items per page"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Successful response",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "description": "Response code"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "Response data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Response message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/v1/plugins/runtime/list": {
+      "get": {
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Page number"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Items per page"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Successful response",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "description": "Response code"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "Response data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Response message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/v1/plugins/test": {
+      "post": {
+        "requestBody": {
+          "description": "Request payload",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "Request body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Successful response",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "description": "Response code"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "Response data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Response message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/v1/room/create": {
+      "post": {
+        "requestBody": {
+          "description": "Request payload",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "Request body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Successful response",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "description": "Response code"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "Response data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Response message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/v1/room/join": {
+      "post": {
+        "requestBody": {
+          "description": "Request payload",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "Request body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Successful response",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "description": "Response code"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "Response data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Response message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/v1/room/leave": {
+      "post": {
+        "requestBody": {
+          "description": "Request payload",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "Request body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Successful response",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "description": "Response code"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "Response data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Response message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/v1/room/list": {
+      "get": {
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Page number"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Items per page"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Successful response",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "description": "Response code"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "Response data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Response message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/v1/room/members": {
+      "get": {
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Page number"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Items per page"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Successful response",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "description": "Response code"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "Response data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Response message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/v1/room/members_page": {
+      "get": {
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Page number"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Items per page"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Successful response",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "description": "Response code"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "Response data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Response message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/v1/room/send": {
+      "post": {
+        "requestBody": {
+          "description": "Request payload",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "Request body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Successful response",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "description": "Response code"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "Response data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Response message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/v1/room/unread": {
+      "get": {
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Page number"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Items per page"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Successful response",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "description": "Response code"
+                    },
+                    "data": {
+                      "type": "object",
+                      "description": "Response data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Response message"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    }
+  }
+}

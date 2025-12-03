@@ -49,13 +49,30 @@ sensitive_words = []
 # install = [
 #     "https://github.com/WuKongIM/plugins/releases/download/latest/wk.plugin.ai-example-${os}-${arch}.wkp"
 # ]
-install = [
-    "file://../v-connect-im-plugin-example/wk.plugin.example-darwin-arm64.vp",
-]
+#install = [
+#    "file://../../v-connect-im-plugin-example/wk.plugin.example-darwin-arm64.vp",
+#]
 # 插件存储目录 / Plugin storage directory
 plugin_dir = "./plugins"
 
 # Unix Socket 通信地址（用于本地插件） / Unix Socket communication address (for local plugins)
 # 如果配置此路径，将启动 Unix Socket 服务器用于与本地插件通信
 # If configured, will start Unix Socket server for local plugin communication
-# socket_path = "./plugins/wukongim.sock"
+# 支持 ~ 展开为用户主目录 / Supports ~ expansion to user home directory
+socket_path = "~/vp/sockets/runtime.sock"
+
+# 插件 Debug 模式 / Plugin debug mode
+# 启用后，所有插件将以 debug 模式启动，显示详细日志
+# When enabled, all plugins will start in debug mode with verbose logging
+debug = true
+
+# 插件日志级别 / Plugin log level
+# 可选值 / Options: trace, debug, info, warn, error
+# log_level = "debug"
+
+# 开发模式插件（直接从源码运行）/ Development mode plugins (run from source)
+# 格式 / Format: "plugin_name:cargo_project_path"
+# 示例 / Example: "example:/Users/mac/workspace/v-connect-im-plugin-example"
+dev_plugins = [
+    "example:/Users/mac/workspace/v-connect-im-plugin-example",
+]

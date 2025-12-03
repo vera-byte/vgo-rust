@@ -12,9 +12,11 @@ pub trait PluginHandler {
     fn name(&self) -> &'static str;
     /// 插件版本 / Plugin version
     fn version(&self) -> &'static str;
-    /// 能力声明 / Capability declaration
-    fn capabilities(&self) -> Vec<String> {
-        vec!["message".into(), "room".into(), "connection".into(), "user".into()]
+    /// 能力声明（必须实现）/ Capability declaration (required)
+    fn capabilities(&self) -> Vec<String>;
+    /// 插件优先级 / Plugin priority
+    fn priority(&self) -> i32 {
+        0
     }
     /// 应用配置 / Apply configuration
     fn config(&mut self, _cfg: &Value) -> Result<()> {
@@ -28,9 +30,9 @@ pub trait PluginHandler {
 pub struct PluginClient<H: PluginHandler> {
     socket_path: String,
     handler: H,
-    reconnect_backoff: (u64, u64), // (initial_ms, max_ms)
-    ident: String, // 插件标识（名称-版本）/ Plugin identifier (name-version)
-    shutdown_tx: watch::Sender<bool>, // 关闭信号发送器 / Shutdown signal sender
+    reconnect_backoff: (u64, u64),      // (initial_ms, max_ms)
+    ident: String,                      // 插件标识（名称-版本）/ Plugin identifier (name-version)
+    shutdown_tx: watch::Sender<bool>,   // 关闭信号发送器 / Shutdown signal sender
     shutdown_rx: watch::Receiver<bool>, // 关闭信号接收器 / Shutdown signal receiver
 }
 
@@ -74,7 +76,7 @@ impl<H: PluginHandler> PluginClient<H> {
         let mut backoff = self.reconnect_backoff.0;
         loop {
             // 如果收到关闭信号则退出 / Exit on shutdown signal
-            if *self.shutdown_rx.borrow() { 
+            if *self.shutdown_rx.borrow() {
                 info!("[plugin:{}] shutdown flag set, exiting", self.ident);
                 break;
             }
@@ -101,7 +103,10 @@ impl<H: PluginHandler> PluginClient<H> {
     /// 单次会话 / Single session
     async fn run_once(&mut self) -> Result<()> {
         self.wait_for_socket().await?;
-        info!("[plugin:{}] connecting socket: {}", self.ident, self.socket_path);
+        info!(
+            "[plugin:{}] connecting socket: {}",
+            self.ident, self.socket_path
+        );
         let mut stream = self.connect_with_retry().await?;
         info!("[plugin:{}] connected", self.ident);
         self.send_handshake(&mut stream).await?;
@@ -113,15 +118,21 @@ impl<H: PluginHandler> PluginClient<H> {
         let mut retries = 120u32;
         while !std::path::Path::new(&self.socket_path).exists() {
             if retries == 0 {
-                error!("[plugin:{}] socket not found: {}", self.ident, self.socket_path);
+                error!(
+                    "[plugin:{}] socket not found: {}",
+                    self.ident, self.socket_path
+                );
                 return Err(anyhow::anyhow!("socket not found"));
             }
-            debug!("[plugin:{}] waiting for socket: {} (retries: {})", self.ident, self.socket_path, retries);
+            debug!(
+                "[plugin:{}] waiting for socket: {} (retries: {})",
+                self.ident, self.socket_path, retries
+            );
             retries -= 1;
             tokio::select! {
                 _ = sleep(Duration::from_millis(500)) => {},
                 _ = self.shutdown_rx.changed() => {
-                    if *self.shutdown_rx.borrow() { 
+                    if *self.shutdown_rx.borrow() {
                         warn!("[plugin:{}] shutdown during wait_for_socket", self.ident);
                         return Err(anyhow::anyhow!("shutdown"));
                     }
@@ -171,6 +182,7 @@ impl<H: PluginHandler> PluginClient<H> {
             "name": self.handler.name(),
             "version": self.handler.version(),
             "capabilities": self.handler.capabilities(),
+            "priority": self.handler.priority(),
         });
         let bytes = serde_json::to_vec(&info)?;
         stream.write_u32(bytes.len() as u32).await?;

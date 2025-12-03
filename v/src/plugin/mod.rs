@@ -1,5 +1,5 @@
 use anyhow::Result;
-use serde_json::Value;
+pub use serde_json::{json, Value};
 
 /// 通用插件接口 / Generic plugin interface
 pub trait VPlugin {
@@ -15,11 +15,7 @@ pub trait VPlugin {
     fn config(&mut self, cfg: &Value) -> Result<()>;
 }
 
-pub mod installer;
 pub mod client;
+pub mod installer;
+pub mod pdk;
 pub mod types;
-pub mod builtin {
-    pub mod trace;
-    pub mod test;
-    pub mod auth;
-}

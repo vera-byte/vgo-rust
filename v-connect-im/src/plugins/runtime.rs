@@ -13,8 +13,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::watch;
 use tokio::process::{Child, Command};
+use tokio::sync::watch;
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
 
@@ -46,6 +46,8 @@ pub struct PluginRuntime {
     pub process: Arc<RwLock<Option<Child>>>, // 进程句柄 / Process handle
     pub socket_path: Option<PathBuf>,
     pub last_heartbeat: Arc<RwLock<Option<Instant>>>,
+    pub capabilities: Arc<RwLock<Vec<String>>>, // 插件能力 / Plugin capabilities
+    pub priority: Arc<RwLock<i32>>,             // 插件优先级 / Plugin priority
 }
 
 impl PluginRuntime {
@@ -63,7 +65,29 @@ impl PluginRuntime {
             process: Arc::new(RwLock::new(None)),
             socket_path,
             last_heartbeat: Arc::new(RwLock::new(None)),
+            capabilities: Arc::new(RwLock::new(Vec::new())),
+            priority: Arc::new(RwLock::new(0)),
         }
+    }
+
+    /// 设置能力 / Set capabilities
+    pub fn set_capabilities(&self, caps: Vec<String>) {
+        *self.capabilities.write() = caps;
+    }
+
+    /// 获取能力 / Get capabilities
+    pub fn capabilities(&self) -> Vec<String> {
+        self.capabilities.read().clone()
+    }
+
+    /// 设置优先级 / Set priority
+    pub fn set_priority(&self, p: i32) {
+        *self.priority.write() = p;
+    }
+
+    /// 获取优先级 / Get priority
+    pub fn priority(&self) -> i32 {
+        *self.priority.read()
     }
 
     /// 获取状态 / Get status
@@ -83,6 +107,8 @@ pub struct PluginRuntimeManager {
     plugin_dir: PathBuf,
     socket_dir: PathBuf,
     global_socket_path: Option<PathBuf>,
+    debug_mode: bool,          // Debug 模式 / Debug mode
+    log_level: Option<String>, // 日志级别 / Log level
 }
 
 /// 插件元数据 / Plugin metadata
@@ -107,12 +133,44 @@ impl PluginRuntimeManager {
             plugin_dir: plugin_dir.as_ref().to_path_buf(),
             socket_dir: socket_dir.as_ref().to_path_buf(),
             global_socket_path: None,
+            debug_mode: false,
+            log_level: None,
         }
+    }
+
+    /// 设置 debug 模式 / Set debug mode
+    pub fn set_debug_mode(&mut self, debug: bool) {
+        self.debug_mode = debug;
+    }
+
+    /// 设置日志级别 / Set log level
+    pub fn set_log_level(&mut self, level: String) {
+        self.log_level = Some(level);
     }
 
     /// 设置全局 socket 路径（所有插件共享）/ Set global socket path shared by all plugins
     pub fn set_global_socket_path(&mut self, path: impl AsRef<Path>) {
         self.global_socket_path = Some(path.as_ref().to_path_buf());
+    }
+
+    /// 注册开发模式插件 / Register development mode plugin
+    pub fn register_dev_plugin(&self, name: String, cargo_project_path: PathBuf) -> Result<()> {
+        info!(
+            "🛠️ Registering dev plugin: {} from {}",
+            name,
+            cargo_project_path.display()
+        );
+
+        let socket_path = self.global_socket_path.clone();
+        let runtime = PluginRuntime::new(
+            name.clone(),
+            cargo_project_path,
+            Some("dev".to_string()),
+            socket_path,
+        );
+
+        self.plugins.insert(name, runtime);
+        Ok(())
     }
 
     /// 初始化运行时管理器 / Initialize runtime manager
@@ -176,12 +234,38 @@ impl PluginRuntimeManager {
         runtime.set_status(PluginStatus::Starting);
 
         // 启动插件进程 / Start plugin process
-        let mut cmd = Command::new(&runtime.path);
+        let mut cmd = if runtime.path.is_dir() {
+            // 开发模式：使用 cargo run / Dev mode: use cargo run
+            info!("🛠️ Starting dev plugin {} with cargo run", name);
+            let mut c = Command::new("cargo");
+            c.arg("run")
+                .arg("--manifest-path")
+                .arg(runtime.path.join("Cargo.toml"))
+                .arg("--")
+                .current_dir(&runtime.path);
+            c
+        } else {
+            // 生产模式：直接运行二进制 / Production mode: run binary directly
+            Command::new(&runtime.path)
+        };
+
         cmd.arg("--socket")
             .arg(socket_path.to_string_lossy().as_ref())
             .stdin(Stdio::null())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit());
+
+        // 添加 debug 参数 / Add debug arguments
+        if self.debug_mode {
+            cmd.arg("--debug");
+            info!("Starting plugin {} in debug mode", name);
+        }
+
+        // 添加日志级别参数 / Add log level argument
+        if let Some(ref level) = self.log_level {
+            cmd.arg("--log-level").arg(level);
+            info!("Starting plugin {} with log level: {}", name, level);
+        }
 
         match cmd.spawn() {
             Ok(child) => {
@@ -407,6 +491,7 @@ impl PluginRuntimeManager {
 pub struct UnixSocketServer {
     listener: UnixListener,
     plugin_manager: Arc<PluginRuntimeManager>,
+    connection_pool: Arc<PluginConnectionPool>,
     shutdown_rx: watch::Receiver<bool>, // 关闭信号 / Shutdown signal
 }
 
@@ -432,11 +517,19 @@ impl UnixSocketServer {
         let listener = UnixListener::bind(socket_path)?;
         info!("Unix Socket server listening on: {:?}", socket_path);
 
+        let connection_pool = Arc::new(PluginConnectionPool::new(plugin_manager.clone()));
+
         Ok(Self {
             listener,
             plugin_manager,
+            connection_pool,
             shutdown_rx,
         })
+    }
+
+    /// 获取连接池 / Get connection pool
+    pub fn connection_pool(&self) -> Arc<PluginConnectionPool> {
+        self.connection_pool.clone()
     }
 
     /// 运行服务器 / Run server
@@ -448,8 +541,9 @@ impl UnixSocketServer {
                     match res {
                         Ok((stream, _)) => {
                             let manager = self.plugin_manager.clone();
+                            let pool = self.connection_pool.clone();
                             tokio::spawn(async move {
-                                if let Err(e) = Self::handle_connection(stream, manager).await {
+                                if let Err(e) = Self::handle_connection(stream, manager, pool).await {
                                     error!("Error handling Unix Socket connection: {}", e);
                                 }
                             });
@@ -473,44 +567,135 @@ impl UnixSocketServer {
 
     /// 处理连接 / Handle connection
     async fn handle_connection(
-        mut stream: UnixStream,
+        stream: UnixStream,
         manager: Arc<PluginRuntimeManager>,
+        pool: Arc<PluginConnectionPool>,
     ) -> Result<()> {
+        let (mut read_half, mut write_half) = stream.into_split();
+        let mut plugin_name: Option<String> = None;
         let mut handshake_done = false;
+
         loop {
-            match stream.read_u32().await {
+            match read_half.read_u32().await {
                 Ok(len) => {
                     let mut buffer = vec![0u8; len as usize];
-                    if let Err(e) = stream.read_exact(&mut buffer).await {
+                    if let Err(e) = read_half.read_exact(&mut buffer).await {
                         error!("Plugin connection read error: {}", e);
                         break;
                     }
 
                     let payload: Value = serde_json::from_slice(&buffer).unwrap_or(Value::Null);
-                    if !handshake_done {
-                        handshake_done = true;
-                        if let Some(name) = payload.get("name").and_then(|v| v.as_str()) {
-                            info!("🤝 Plugin handshake received: {}", name);
-                        } else {
-                            info!("🤝 Plugin handshake received (unknown name)");
-                        }
-                    } else {
-                        debug!("📨 Plugin message: {}", payload);
-                    }
 
-                    let response = serde_json::to_vec(&serde_json::json!({
-                        "status": "ok"
-                    }))?;
-                    stream.write_u32(response.len() as u32).await?;
-                    stream.write_all(&response).await?;
-                    stream.flush().await?;
+                    if !handshake_done {
+                        // 处理握手 / Handle handshake
+                        handshake_done = true;
+
+                        let name = payload
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown");
+                        plugin_name = Some(name.to_string());
+
+                        let version = payload
+                            .get("version")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown");
+
+                        let capabilities = payload
+                            .get("capabilities")
+                            .and_then(|v| v.as_array())
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                    .collect::<Vec<_>>()
+                            })
+                            .unwrap_or_default();
+
+                        let priority = payload
+                            .get("priority")
+                            .and_then(|v| v.as_i64())
+                            .unwrap_or(0) as i32;
+
+                        info!(
+                            "🤝 Plugin handshake: {} v{} (priority: {}, capabilities: {:?})",
+                            name, version, priority, capabilities
+                        );
+
+                        // 保存插件信息 / Save plugin info
+                        // 尝试匹配完整名称或简短名称 / Try to match full name or short name
+                        let mut found = false;
+                        if let Some(runtime) = manager.plugins.get(name) {
+                            runtime.set_capabilities(capabilities.clone());
+                            runtime.set_priority(priority);
+                            found = true;
+                            info!("✅ 插件信息已更新（完整名称匹配）/ Plugin info updated (full name match): {}", name);
+                        } else {
+                            // 尝试提取简短名称 / Try to extract short name
+                            // 例如 "v.plugin.example" -> "example" 或 "wk.plugin.ai" -> "ai"
+                            let short_name = name
+                                .strip_prefix("v.plugin.")
+                                .or_else(|| name.strip_prefix("wk.plugin."))
+                                .unwrap_or(name);
+
+                            if let Some(runtime) = manager.plugins.get(short_name) {
+                                runtime.set_capabilities(capabilities.clone());
+                                runtime.set_priority(priority);
+                                found = true;
+                                info!("✅ 插件信息已更新（简短名称匹配）/ Plugin info updated (short name match): {} -> {}", name, short_name);
+                            }
+                        }
+
+                        if !found {
+                            warn!(
+                                "⚠️  未找到插件运行时信息 / Plugin runtime not found: {}",
+                                name
+                            );
+                        }
+
+                        // 发送握手响应 / Send handshake response
+                        let response = serde_json::to_vec(&serde_json::json!({
+                            "status": "ok",
+                            "config": {}
+                        }))?;
+                        write_half.write_u32(response.len() as u32).await?;
+                        write_half.write_all(&response).await?;
+                        write_half.flush().await?;
+
+                        // 重新组合 stream 并注册到连接池 / Reunite stream and register to pool
+                        // 使用简短名称注册，以便后续查找 / Use short name for registration for later lookup
+                        let register_name = name
+                            .strip_prefix("v.plugin.")
+                            .or_else(|| name.strip_prefix("wk.plugin."))
+                            .unwrap_or(name);
+
+                        let reunited = read_half.reunite(write_half)?;
+                        pool.register(register_name.to_string(), reunited);
+
+                        info!(
+                            "✅ Plugin {} registered to connection pool as '{}'",
+                            name, register_name
+                        );
+                        return Ok(());
+                    }
                 }
                 Err(e) => {
                     // 连接关闭（EOF常见于优雅停机）/ Connection closed (EOF common on graceful shutdown)
                     if e.kind() == std::io::ErrorKind::UnexpectedEof {
-                        info!("Plugin connection closed gracefully (EOF): {}", e);
+                        info!(
+                            "Plugin {} connection closed gracefully (EOF)",
+                            plugin_name.as_deref().unwrap_or("unknown")
+                        );
                     } else {
-                        debug!("Plugin connection closed: {}", e);
+                        debug!(
+                            "Plugin {} connection closed: {}",
+                            plugin_name.as_deref().unwrap_or("unknown"),
+                            e
+                        );
+                    }
+
+                    // 从连接池移除 / Remove from connection pool
+                    if let Some(name) = &plugin_name {
+                        pool.unregister(name);
                     }
                     break;
                 }
@@ -519,5 +704,140 @@ impl UnixSocketServer {
 
         drop(manager);
         Ok(())
+    }
+}
+
+/// 插件连接池 / Plugin connection pool
+pub struct PluginConnectionPool {
+    connections: Arc<DashMap<String, Arc<tokio::sync::Mutex<UnixStream>>>>,
+    manager: Arc<PluginRuntimeManager>,
+}
+
+impl PluginConnectionPool {
+    pub fn new(manager: Arc<PluginRuntimeManager>) -> Self {
+        Self {
+            connections: Arc::new(DashMap::new()),
+            manager,
+        }
+    }
+
+    /// 注册插件连接 / Register plugin connection
+    pub fn register(&self, name: String, stream: UnixStream) {
+        self.connections
+            .insert(name, Arc::new(tokio::sync::Mutex::new(stream)));
+    }
+
+    /// 移除插件连接 / Remove plugin connection
+    pub fn unregister(&self, name: &str) {
+        self.connections.remove(name);
+    }
+
+    /// 向插件发送事件 / Send event to plugin
+    pub async fn send_event(
+        &self,
+        plugin_name: &str,
+        event_type: &str,
+        payload: &Value,
+    ) -> Result<Option<Value>> {
+        if let Some(conn) = self.connections.get(plugin_name) {
+            let mut stream = conn.lock().await;
+
+            // 构建事件消息 / Build event message
+            let msg = serde_json::json!({
+                "event_type": event_type,
+                "payload": payload
+            });
+
+            // 发送消息 / Send message
+            let bytes = serde_json::to_vec(&msg)?;
+            stream.write_u32(bytes.len() as u32).await?;
+            stream.write_all(&bytes).await?;
+            stream.flush().await?;
+
+            // 读取响应 / Read response
+            let resp_len = stream.read_u32().await?;
+            let mut resp_buf = vec![0u8; resp_len as usize];
+            stream.read_exact(&mut resp_buf).await?;
+
+            let response: Value = serde_json::from_slice(&resp_buf)?;
+            Ok(Some(response))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// 广播消息事件到所有支持的插件 / Broadcast message event to all capable plugins
+    pub async fn broadcast_message_event(&self, message: &Value) -> Result<Vec<(String, Value)>> {
+        let mut responses = Vec::new();
+
+        // 获取所有插件并按优先级排序 / Get all plugins and sort by priority
+        let mut plugins: Vec<_> = self
+            .manager
+            .plugins
+            .iter()
+            .map(|entry| {
+                let runtime = entry.value();
+                (
+                    entry.key().clone(),
+                    runtime.priority(),
+                    runtime.capabilities(),
+                )
+            })
+            .collect();
+
+        info!(
+            "📋 发现 {} 个已注册插件 / Found {} registered plugins",
+            plugins.len(),
+            plugins.len()
+        );
+
+        // 按优先级降序排序 / Sort by priority descending
+        plugins.sort_by(|a, b| b.1.cmp(&a.1));
+
+        for (name, priority, capabilities) in plugins {
+            debug!("🔍 检查插件 {} (优先级: {}, 能力: {:?}) / Checking plugin {} (priority: {}, capabilities: {:?})", 
+                   name, priority, capabilities, name, priority, capabilities);
+
+            // 检查插件是否支持 message 事件 / Check if plugin supports message events
+            if !capabilities.iter().any(|cap| cap == "message") {
+                debug!("⏭️  插件 {} 不支持 message 事件，跳过 / Plugin {} doesn't support message events, skipping", name, name);
+                continue;
+            }
+
+            info!("📤 向插件 {} 发送 message.incoming 事件 / Sending message.incoming event to plugin {}", name, name);
+
+            // 发送事件 / Send event
+            match self.send_event(&name, "message.incoming", message).await {
+                Ok(Some(response)) => {
+                    info!(
+                        "✅ 插件 {} 响应成功 / Plugin {} responded successfully",
+                        name, name
+                    );
+                    debug!("Plugin {} response: {}", name, response);
+
+                    // 检查是否需要停止传播 / Check if should stop propagation
+                    if let Some(flow) = response.get("flow").and_then(|v| v.as_str()) {
+                        if flow == "stop" {
+                            info!("🛑 插件 {} 要求停止消息传播 / Plugin {} requested to stop message propagation", name, name);
+                            responses.push((name, response));
+                            break;
+                        }
+                    }
+
+                    responses.push((name, response));
+                }
+                Ok(None) => {
+                    warn!("⚠️  插件 {} 未连接 / Plugin {} not connected", name, name);
+                }
+                Err(e) => {
+                    error!(
+                        "❌ 向插件 {} 发送事件失败 / Error sending event to plugin {}: {}",
+                        name, name, e
+                    );
+                }
+            }
+        }
+
+        Ok(responses)
     }
 }

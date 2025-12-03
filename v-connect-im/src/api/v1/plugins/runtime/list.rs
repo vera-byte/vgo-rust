@@ -46,3 +46,4 @@ fn plugin_summary_to_view(summary: PluginRuntimeSummary) -> RuntimePluginView {
     }
 }
 
+

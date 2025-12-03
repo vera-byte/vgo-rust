@@ -1,7 +1,4 @@
-use crate::plugins::{
-    sensitive::SensitiveWordPlugin, test::TestPluginManager, trace::TracePlugin, PluginContext,
-    PluginFlow,
-};
+use crate::plugins::{PluginContext, PluginFlow};
 use actix_web::{web, App, HttpServer};
 use anyhow::Result;
 use clap::Parser;
@@ -169,13 +166,54 @@ impl VConnectIMServer {
     ) -> HttpBroadcastResponse {
         let msg_type = message_type.unwrap_or_else(|| "http_group".to_string());
         let message_id = Uuid::new_v4().to_string();
+        let timestamp = chrono::Utc::now().timestamp_millis();
+
+        // 调用插件系统处理群组消息 / Call plugin system to process group message
+        if let Some(pool) = self.plugin_connection_pool.as_ref() {
+            let plugin_message = serde_json::json!({
+                "message_id": message_id,
+                "from_client_id": from_client_id,
+                "room_id": room_id,
+                "content": content,
+                "message_type": msg_type,
+                "timestamp": timestamp
+            });
+
+            match pool.broadcast_message_event(&plugin_message).await {
+                Ok(responses) => {
+                    tracing::debug!(
+                        "插件处理群组消息响应 / Plugin group message responses: {:?}",
+                        responses
+                    );
+                    // 检查是否有插件要求停止消息传播 / Check if any plugin wants to stop propagation
+                    for (_plugin_name, response) in responses {
+                        if let Some(flow) = response.get("flow").and_then(|v| v.as_str()) {
+                            if flow == "stop" {
+                                tracing::info!(
+                                    "群组消息被插件拦截 / Group message stopped by plugin"
+                                );
+                                return HttpBroadcastResponse {
+                                    success: false,
+                                    message: "Group message blocked by plugin".to_string(),
+                                    delivered_count: 0,
+                                };
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("插件系统调用失败 / Plugin system call failed: {}", e);
+                }
+            }
+        }
+
         let forward_msg = ImMessage {
             msg_type: msg_type.clone(),
             data: serde_json::json!({
                 "from": from_client_id,
                 "room_id": room_id,
                 "content": content,
-                "timestamp": chrono::Utc::now().timestamp_millis(),
+                "timestamp": timestamp,
                 "message_id": message_id
             }),
             target_uid: None,
@@ -402,12 +440,8 @@ impl VConnectIMServer {
                                     .get("uid")
                                     .and_then(|v| v.as_str())
                                     .map(|s| s.to_string());
-                                let is_valid = self
-                                    .auth_plugin
-                                    .as_ref()
-                                    .validate(self, token)
-                                    .await
-                                    .unwrap_or(false);
+                                // 简化认证：直接通过 / Simplified auth: always pass
+                                let is_valid = true;
                                 let auth_response = ImMessage {
                                     msg_type: "auth_response".to_string(),
                                     data: serde_json::json!({ "status": if is_valid {"success"} else {"failed"}, "message": if is_valid {"Authentication successful"} else {"Authentication failed"} }),
@@ -418,11 +452,11 @@ impl VConnectIMServer {
                                     .await?;
                                 if is_valid {
                                     if let Some(uid_val) = uid_opt {
-                                        let _ = self
-                                            .auth_plugin
-                                            .as_ref()
-                                            .apply(self, client_id, &uid_val)
-                                            .await;
+                                        // 直接设置 UID / Directly set UID
+                                        if let Some(mut conn) = self.connections.get_mut(client_id)
+                                        {
+                                            conn.uid = Some(uid_val.clone());
+                                        }
                                         // 触发认证成功事件 / Emit connection authenticated event
                                         let auth_event = serde_json::json!({
                                             "client_id": client_id,
@@ -449,12 +483,55 @@ impl VConnectIMServer {
                                 if let Some(target_uid) = &wk_msg.target_uid {
                                     {
                                         let message_id = Uuid::new_v4().to_string();
+                                        let timestamp = chrono::Utc::now().timestamp_millis();
+                                        let from_uid = self
+                                            .connections
+                                            .get(client_id)
+                                            .and_then(|c| c.uid.clone())
+                                            .unwrap_or_default();
+
+                                        // 调用插件系统处理WebSocket消息 / Call plugin system to process WebSocket message
+                                        if let Some(pool) = self.plugin_connection_pool.as_ref() {
+                                            let plugin_message = serde_json::json!({
+                                                "message_id": message_id,
+                                                "from_uid": from_uid,
+                                                "to_uid": target_uid,
+                                                "content": wk_msg.data,
+                                                "message_type": "message",
+                                                "timestamp": timestamp
+                                            });
+
+                                            match pool
+                                                .broadcast_message_event(&plugin_message)
+                                                .await
+                                            {
+                                                Ok(responses) => {
+                                                    tracing::debug!("插件处理WebSocket消息响应 / Plugin WebSocket message responses: {:?}", responses);
+                                                    // 检查是否有插件要求停止消息传播 / Check if any plugin wants to stop propagation
+                                                    for (_plugin_name, response) in responses {
+                                                        if let Some(flow) = response
+                                                            .get("flow")
+                                                            .and_then(|v| v.as_str())
+                                                        {
+                                                            if flow == "stop" {
+                                                                tracing::info!("WebSocket消息被插件拦截 / WebSocket message stopped by plugin");
+                                                                return Ok(());
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    tracing::error!("插件系统调用失败 / Plugin system call failed: {}", e);
+                                                }
+                                            }
+                                        }
+
                                         let forward_msg = ImMessage {
                                             msg_type: "forwarded_message".to_string(),
                                             data: serde_json::json!({
-                                                "from": self.connections.get(client_id).and_then(|c| c.uid.clone()).unwrap_or_default(),
+                                                "from": from_uid,
                                                 "content": wk_msg.data,
-                                                "timestamp": chrono::Utc::now().timestamp_millis(),
+                                                "timestamp": timestamp,
                                                 "message_id": message_id
                                             }),
                                             target_uid: None,
@@ -1378,8 +1455,11 @@ impl VConnectIMServer {
 
 // Clone 已在 server 模块实现 / Clone implemented in server module
 
-/// 启动HTTP服务器 / Start HTTP server
-async fn start_http_server(server: Arc<VConnectIMServer>, host: String, port: u16) -> Result<()> {
+fn build_http_server(
+    server: Arc<VConnectIMServer>,
+    host: String,
+    port: u16,
+) -> Result<actix_web::dev::Server> {
     let addr = format!("{}:{}", host, port);
     // 启动前打印路由映射（自动生成） / Print auto-generated route map before start
     api_registry::print_routes(&addr, &["Logger"]);
@@ -1414,7 +1494,9 @@ async fn start_http_server(server: Arc<VConnectIMServer>, host: String, port: u1
             })
             .configure(crate::router::configure)
     })
-    .bind(addr.clone())?;
+    .bind(addr.clone())?
+    .disable_signals()
+    .shutdown_timeout(30);
 
     info!("🌐 HTTP Server starting on http://{}", addr);
     info!("📡 Available HTTP endpoints:");
@@ -1431,9 +1513,7 @@ async fn start_http_server(server: Arc<VConnectIMServer>, host: String, port: u1
     info!("   Health: curl http://{}/health", addr);
     info!("   Detailed Health: curl http://{}/health/detailed", addr);
 
-    actix.run().await?;
-
-    Ok(())
+    Ok(actix.run())
 }
 
 #[tokio::main]
@@ -1476,12 +1556,6 @@ async fn main() -> Result<()> {
     let webhook_timeout_ms: u64 = cm.get_or("webhook.timeout_ms", 3000000_i64) as u64;
     let webhook_secret: Option<String> = cm.get::<String>("webhook.secret").ok();
     let webhook_enabled: bool = cm.get_or("webhook.enabled", false);
-    let trace_enabled: bool = cm.get_or("plugins.trace_enabled", 0_i64) == 1;
-    let trace_log_payload: bool = cm.get_or("plugins.trace_log_payload", 0_i64) == 1;
-    let sensitive_words: Vec<String> = cm
-        .get::<Vec<String>>("plugins.sensitive_words")
-        .unwrap_or_default();
-
     // 插件安装配置 / Plugin installation configuration
     let plugin_dir: String = cm.get_or("plugins.plugin_dir", "./plugins".to_string());
     let plugin_install_urls: Vec<String> =
@@ -1538,23 +1612,6 @@ async fn main() -> Result<()> {
         };
         server_builder = server_builder.with_auth_config(auth_cfg);
     }
-    if trace_enabled {
-        info!(
-            "🧩 Trace plugin enabled (payload_log={})",
-            trace_log_payload
-        );
-        server_builder = server_builder.with_plugin(Arc::new(TracePlugin::new(trace_log_payload)));
-    }
-    let sensitive_plugin = Arc::new(SensitiveWordPlugin::new(sensitive_words.clone()));
-    server_builder = server_builder.with_plugin(sensitive_plugin);
-
-    // 初始化测试插件管理器 / Initialize test plugin manager
-    let test_plugin_manager = Arc::new(TestPluginManager::new());
-    let test_plugin = test_plugin_manager.get_plugin();
-    server_builder = server_builder.with_plugin(test_plugin.clone());
-    server_builder = server_builder.with_test_plugin_manager(test_plugin_manager.clone());
-    info!("🧪 Test plugin enabled");
-
     // 初始化并安装插件 / Initialize and install plugins
     if !plugin_install_urls.is_empty() {
         use v::plugin::installer::PluginInstaller;
@@ -1583,10 +1640,48 @@ async fn main() -> Result<()> {
     use crate::plugins::runtime::PluginRuntimeManager;
     let socket_dir = format!("{}/sockets", plugin_dir);
     let mut runtime_manager = PluginRuntimeManager::new(&plugin_dir, &socket_dir);
+
+    // 读取插件 debug 配置 / Read plugin debug configuration
+    let plugin_debug: bool = cm.get_or("plugins.debug", false);
+    let plugin_log_level: Option<String> = cm.get::<String>("plugins.log_level").ok();
+
+    if plugin_debug {
+        runtime_manager.set_debug_mode(true);
+        info!("🐛 Plugin debug mode enabled");
+    }
+
+    if let Some(ref level) = plugin_log_level {
+        runtime_manager.set_log_level(level.clone());
+        info!("📊 Plugin log level: {}", level);
+    }
+
     if let Err(e) = runtime_manager.init() {
         warn!("Failed to initialize plugin runtime manager: {}", e);
     } else {
         info!("🔌 Plugin runtime manager initialized");
+    }
+
+    // 注册开发模式插件 / Register development mode plugins
+    let dev_plugins: Vec<String> = cm
+        .get::<Vec<String>>("plugins.dev_plugins")
+        .unwrap_or_default();
+
+    for dev_plugin in dev_plugins {
+        if let Some((name, path)) = dev_plugin.split_once(':') {
+            let path = std::path::PathBuf::from(path);
+            if path.exists() {
+                if let Err(e) = runtime_manager.register_dev_plugin(name.to_string(), path.clone())
+                {
+                    warn!("Failed to register dev plugin {}: {}", name, e);
+                } else {
+                    info!("🛠️ Registered dev plugin: {} from {}", name, path.display());
+                }
+            } else {
+                warn!("Dev plugin path not found: {}", path.display());
+            }
+        } else {
+            warn!("Invalid dev_plugin format: {}", dev_plugin);
+        }
     }
 
     // 启动 Unix Socket 服务器（若未配置则自动生成路径）/ Start Unix Socket server (auto generate path if absent)
@@ -1595,26 +1690,49 @@ async fn main() -> Result<()> {
         .ok()
         .filter(|p| !p.trim().is_empty())
         .unwrap_or_else(|| format!("{}/sockets/runtime.sock", plugin_dir));
+
+    // 展开 ~ 为用户主目录 / Expand ~ to user home directory
+    let socket_path = if socket_path.starts_with("~/") {
+        if let Some(home) = std::env::var_os("HOME") {
+            let home_path = std::path::Path::new(&home);
+            home_path
+                .join(&socket_path[2..])
+                .to_string_lossy()
+                .to_string()
+        } else {
+            socket_path
+        }
+    } else {
+        socket_path
+    };
+
     runtime_manager.set_global_socket_path(&socket_path);
     let runtime_manager_arc = Arc::new(runtime_manager);
     // 全局关闭通道（供各子系统共享）/ Global shutdown channel for subsystems
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     use crate::plugins::runtime::UnixSocketServer;
-    let socket_server_task =
-        match UnixSocketServer::new(&socket_path, runtime_manager_arc.clone(), shutdown_rx.clone()).await {
-            Ok(server) => {
-                info!("🔌 Unix Socket server starting on: {}", socket_path);
-                Some(tokio::spawn(async move {
-                    if let Err(e) = server.run().await {
-                        error!("Unix Socket server error: {}", e);
-                    }
-                }))
-            }
-            Err(e) => {
-                warn!("Failed to start Unix Socket server: {}", e);
-                None
-            }
-        };
+    let (socket_server_task, plugin_connection_pool) = match UnixSocketServer::new(
+        &socket_path,
+        runtime_manager_arc.clone(),
+        shutdown_rx.clone(),
+    )
+    .await
+    {
+        Ok(server) => {
+            info!("🔌 Unix Socket server starting on: {}", socket_path);
+            let pool = server.connection_pool();
+            let task = Some(tokio::spawn(async move {
+                if let Err(e) = server.run().await {
+                    error!("Unix Socket server error: {}", e);
+                }
+            }));
+            (task, Some(pool))
+        }
+        Err(e) => {
+            warn!("Failed to start Unix Socket server: {}", e);
+            (None, None)
+        }
+    };
 
     // 启动所有已安装插件（确保 socket 已经监听）/ Start installed plugins after socket ready
     {
@@ -1634,17 +1752,16 @@ async fn main() -> Result<()> {
     server_builder = server_builder.with_node(node_id.clone(), directory.clone());
     server_builder = server_builder.with_raft(raft_cluster.clone());
     server_builder = server_builder.with_plugin_runtime_manager(runtime_manager_arc.clone());
+    if let Some(pool) = plugin_connection_pool {
+        server_builder = server_builder.with_plugin_connection_pool(pool);
+    }
     let server = Arc::new(server_builder);
     directory.register_server(&node_id, server.clone());
     if let Err(e) = server.plugin_registry.emit_startup(server.as_ref()).await {
         warn!("plugin startup error: {}", e);
     }
     let plugin_cfg = serde_json::json!({
-        "plugins": {
-            "trace_enabled": trace_enabled,
-            "trace_log_payload": trace_log_payload,
-            "sensitive_words": sensitive_words,
-        }
+        "plugins": {}
     });
     server.set_plugin_config(plugin_cfg.clone());
     if let Err(e) = server.plugin_registry.emit_config_update(&plugin_cfg).await {
@@ -1657,8 +1774,7 @@ async fn main() -> Result<()> {
     let server_clone = server.clone();
     let server_http = server.clone();
 
-    // 启动自动心跳清理任务 / Start automatic heartbeat cleanup task
-    tasks::heartbeat::spawn_cleanup_task(server_clone, timeout_ms);
+    tasks::heartbeat::spawn_cleanup_task(server_clone, timeout_ms, shutdown_rx.clone());
 
     // 启动WebSocket服务器 / Start WebSocket server
     let ws_server = server.clone();
@@ -1676,19 +1792,29 @@ async fn main() -> Result<()> {
         }
     };
 
-    // 启动HTTP服务器 / Start HTTP server
     let http_host = host.clone();
     let mut http_shutdown_rx = shutdown_rx.clone();
     let http_future = async move {
-        // 等待WebSocket服务器启动 / Wait for WebSocket server to start
         sleep(Duration::from_secs(1)).await;
-        info!("🌐 Starting HTTP server on {}:{}", http_host, http_port);
-        tokio::select! {
-            res = start_http_server(server_http, http_host, http_port) => {
-                if let Err(e) = res { error!("❌ HTTP server error: {}", e); }
+        match build_http_server(server_http, http_host.clone(), http_port) {
+            Ok(server) => {
+                let handle = server.handle();
+                tokio::pin!(server);
+                loop {
+                    tokio::select! {
+                        res = &mut server => {
+                            if let Err(e) = res { error!("❌ HTTP server error: {}", e); }
+                            break;
+                        }
+                        _ = http_shutdown_rx.changed() => {
+                            info!("🛑 HTTP shutdown signal received");
+                            let _ = handle.stop(true).await;
+                        }
+                    }
+                }
             }
-            _ = http_shutdown_rx.changed() => {
-                info!("🛑 HTTP shutdown signal received");
+            Err(e) => {
+                error!("❌ HTTP server build error: {}", e);
             }
         }
     };

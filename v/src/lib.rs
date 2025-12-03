@@ -18,6 +18,10 @@ pub use crate::repo::*;
 
 pub mod plugin;
 
+// 重新导出 tracing 宏，方便插件开发
+// Re-export tracing macros for plugin development convenience
+pub use tracing::{debug, error, info, trace, warn};
+
 // 健康检查接口与状态定义（统一对外暴露）
 // Health check interface and status definitions (unified public exposure)
 use async_trait::async_trait;
