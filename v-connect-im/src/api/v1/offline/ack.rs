@@ -1,8 +1,8 @@
-use actix_web::{web, Responder};
+use crate::VConnectIMServer;
 use actix_web::http::StatusCode;
+use actix_web::{web, Responder};
 use std::sync::Arc;
 use v::response::respond_any;
-use crate::VConnectIMServer;
 
 #[derive(serde::Deserialize)]
 pub struct AckRequest {
@@ -18,13 +18,28 @@ pub async fn offline_ack_handle(
     server: web::Data<Arc<VConnectIMServer>>,
     req: web::Json<AckRequest>,
 ) -> impl Responder {
-    match server.storage.ack_offline(&req.uid, &req.message_ids) {
-        Ok(removed) => respond_any(StatusCode::OK, serde_json::json!({
-            "removed": removed
-        })),
-        Err(e) => respond_any(StatusCode::BAD_REQUEST, serde_json::json!({
-            "error": format!("{}", e)
-        })),
+    // 通过存储插件确认离线消息 / Acknowledge offline messages through storage plugin
+    if let Some(pool) = server.plugin_connection_pool.as_ref() {
+        match pool.storage_ack_offline(&req.uid, &req.message_ids).await {
+            Ok(removed) => respond_any(
+                StatusCode::OK,
+                serde_json::json!({
+                    "removed": removed
+                }),
+            ),
+            Err(e) => respond_any(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                serde_json::json!({
+                    "error": format!("存储插件错误 / Storage plugin error: {}", e)
+                }),
+            ),
+        }
+    } else {
+        respond_any(
+            StatusCode::SERVICE_UNAVAILABLE,
+            serde_json::json!({
+                "error": "存储插件未初始化 / Storage plugin not initialized"
+            }),
+        )
     }
 }
-

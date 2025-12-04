@@ -1,8 +1,8 @@
-use actix_web::{web, Responder};
+use crate::VConnectIMServer;
 use actix_web::http::StatusCode;
+use actix_web::{web, Responder};
 use std::sync::Arc;
 use v::response::respond_any;
-use crate::VConnectIMServer;
 
 #[derive(serde::Deserialize)]
 pub struct HistoryQuery {
@@ -29,15 +29,40 @@ pub async fn history_handle(
     query: web::Query<HistoryQuery>,
 ) -> impl Responder {
     let limit = query.limit.unwrap_or(100);
-    match server.storage.list_messages_by_user(
-        &query.uid,
-        query.peer.as_deref(),
-        query.since_ts,
-        query.until_ts,
-        limit,
-    ) {
-        Ok(items) => respond_any(StatusCode::OK, HistoryResponse { items }),
-        Err(e) => respond_any(StatusCode::BAD_REQUEST, serde_json::json!({ "error": format!("{}", e) })),
-    }
-}
 
+    // 优先使用存储插件查询 / Prefer storage plugin query
+    if let Some(pool) = server.plugin_connection_pool.as_ref() {
+        match pool
+            .storage_query_history(
+                Some(&query.uid),
+                query.peer.as_deref(),
+                query.since_ts,
+                query.until_ts,
+                limit,
+            )
+            .await
+        {
+            Ok(messages) => {
+                return respond_any(
+                    StatusCode::OK,
+                    serde_json::json!({
+                        "messages": messages,
+                        "count": messages.len()
+                    }),
+                );
+            }
+            Err(e) => {
+                tracing::warn!("存储插件查询失败，回退到本地存储 / Storage plugin query failed, fallback to local: {}", e);
+            }
+        }
+    }
+
+    // 本地存储已移除，只使用插件 / Local storage removed, plugin only
+    respond_any(
+        StatusCode::SERVICE_UNAVAILABLE,
+        serde_json::json!({
+            "error": "Storage plugin not available",
+            "message": "历史消息功能需要存储插件 / History feature requires storage plugin"
+        }),
+    )
+}

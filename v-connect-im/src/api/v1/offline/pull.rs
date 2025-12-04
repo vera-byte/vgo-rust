@@ -28,19 +28,34 @@ pub async fn offline_pull_handle(
     query: web::Query<PullQuery>,
 ) -> impl Responder {
     let limit = query.limit.unwrap_or(100);
-    match server.storage.pull_offline_by_time(
-        &query.uid,
-        query.cursor.clone(),
-        limit,
-        query.since_ts,
-        query.until_ts,
-    ) {
-        Ok((items, next_cursor)) => {
-            respond_any(StatusCode::OK, PullResponse { items, next_cursor })
+
+    // 通过存储插件拉取离线消息 / Pull offline messages through storage plugin
+    if let Some(pool) = server.plugin_connection_pool.as_ref() {
+        match pool.storage_pull_offline(&query.uid, limit).await {
+            Ok(messages) => {
+                // 将 JSON 值转换为 OfflineRecord / Convert JSON values to OfflineRecord
+                let items: Vec<crate::storage::OfflineRecord> = messages
+                    .iter()
+                    .filter_map(|msg| serde_json::from_value(msg.clone()).ok())
+                    .collect();
+
+                respond_any(
+                    StatusCode::OK,
+                    PullResponse {
+                        items,
+                        next_cursor: None, // 简化版本，不支持游标 / Simplified, no cursor support
+                    },
+                )
+            }
+            Err(e) => respond_any(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                serde_json::json!({ "error": format!("存储插件错误 / Storage plugin error: {}", e) }),
+            ),
         }
-        Err(e) => respond_any(
-            StatusCode::BAD_REQUEST,
-            serde_json::json!({ "error": format!("{}", e) }),
-        ),
+    } else {
+        respond_any(
+            StatusCode::SERVICE_UNAVAILABLE,
+            serde_json::json!({ "error": "存储插件未初始化 / Storage plugin not initialized" }),
+        )
     }
 }

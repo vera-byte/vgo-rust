@@ -22,8 +22,19 @@ pub async fn room_leave_handle(
     if let Some(set) = server.rooms.get_mut(&req.room_id) {
         set.remove(&req.uid);
     }
-    // 持久化移除 / Persist remove
-    let _ = server.storage.remove_room_member(&req.room_id, &req.uid);
+
+    // 通过存储插件持久化移除 / Persist remove through storage plugin
+    if let Some(pool) = server.plugin_connection_pool.as_ref() {
+        if let Err(e) = pool
+            .storage_remove_room_member(&req.room_id, &req.uid)
+            .await
+        {
+            warn!(
+                "存储插件移除房间成员失败 / Storage plugin remove room member failed: {}",
+                e
+            );
+        }
+    }
     let event_payload = serde_json::json!({
         "room_id": req.room_id.clone(),
         "uid": req.uid.clone()

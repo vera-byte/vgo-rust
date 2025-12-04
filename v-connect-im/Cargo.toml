@@ -36,7 +36,7 @@ sha2 = "0.10"
 hex = "0.4"
 v = { path = "../v" }
 async-trait = "0.1"
-sled = "0.34"
+# sled = "0.34"  # 已迁移到存储插件 / Migrated to storage plugin
 async-raft = { version = "0.6", optional = true }
 quiche = { version = "0.17", optional = true }
 rand = "0.8"

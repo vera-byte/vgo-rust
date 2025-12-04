@@ -1,7 +1,7 @@
 use crate::cluster;
 use crate::plugins::runtime::PluginRuntimeManager;
 use crate::plugins::{Plugin, PluginRegistry};
-use crate::storage;
+use crate::storage; // 保留数据结构定义 / Keep data structure definitions
 use dashmap::{DashMap, DashSet};
 use parking_lot::RwLock;
 use serde_json::Value;
@@ -24,9 +24,9 @@ pub struct Connection {
 /// 服务端全局状态 / Server Global State
 pub struct VConnectIMServer {
     pub connections: Arc<DashMap<String, Connection>>, // 客户端连接 / Client connections
-    pub webhook_config: Option<crate::config::WebhookConfigLite>, // Webhook配置 / Webhook configuration
-    pub auth_config: Option<crate::config::AuthConfigLite>,       // 鉴权配置 / Auth configuration
-    pub plugin_registry: Arc<PluginRegistry>, // 通用插件注册中心 / Plugin registry
+    // pub webhook_config: Option<crate::config::WebhookConfigLite>, // 已移除 / Removed
+    pub auth_config: Option<crate::config::AuthConfigLite>, // 鉴权配置 / Auth configuration
+    pub plugin_registry: Arc<PluginRegistry>,               // 通用插件注册中心 / Plugin registry
     pub plugin_runtime_manager: Option<Arc<PluginRuntimeManager>>, // 插件运行时管理器 / Plugin runtime manager
     pub plugin_connection_pool: Option<Arc<crate::plugins::runtime::PluginConnectionPool>>, // 插件连接池 / Plugin connection pool
     pub plugin_config: Arc<RwLock<Value>>, // 插件配置快照 / Plugin config snapshot
@@ -34,9 +34,9 @@ pub struct VConnectIMServer {
     pub node_id: String,                                  // 当前节点ID / Current node ID
     pub directory: Arc<cluster::directory::Directory>,    // 目录服务 / Directory service
     pub broker: cluster::broker::ShardBroker,             // 分片代理 / Shard broker
-    pub storage: storage::Storage,                        // 存储 / Storage
-    pub raft: Arc<cluster::raft::RaftCluster>,            // Raft集群 / Raft cluster
-    pub rooms: Arc<DashMap<String, DashSet<String>>>,     // 房间到UID集合 / Room -> UIDs
+    // storage 字段已移除，使用 plugin_connection_pool.storage_* 方法 / storage field removed, use plugin_connection_pool.storage_* methods
+    pub raft: Arc<cluster::raft::RaftCluster>, // Raft集群 / Raft cluster
+    pub rooms: Arc<DashMap<String, DashSet<String>>>, // 房间到UID集合 / Room -> UIDs
     pub uid_clients: Arc<DashMap<String, DashSet<String>>>, // UID到客户端集合 / UID -> client_ids
     pub quic_conn_count: Arc<std::sync::atomic::AtomicUsize>, // QUIC连接数 / QUIC connection count
     pub quic_path_updates: Arc<std::sync::atomic::AtomicUsize>, // QUIC路径更新计数 / QUIC path updates count
@@ -59,7 +59,7 @@ impl VConnectIMServer {
         let plugin_registry = Arc::new(PluginRegistry::new());
         Self {
             connections: Arc::new(DashMap::new()),
-            webhook_config: None,
+            // webhook_config: None,  // 已移除 / Removed
             auth_config: None,
             plugin_registry,
             plugin_runtime_manager: None,
@@ -69,7 +69,6 @@ impl VConnectIMServer {
             node_id: "node-local".to_string(),
             directory,
             broker: cluster::broker::ShardBroker::new(),
-            storage: storage::Storage::open_temporary().expect("open storage"),
             raft,
             rooms: Arc::new(DashMap::new()),
             uid_clients: Arc::new(DashMap::new()),
@@ -84,11 +83,11 @@ impl VConnectIMServer {
         }
     }
 
-    /// 配置Webhook / Configure webhook
-    pub fn with_webhook_config(mut self, config: crate::config::WebhookConfigLite) -> Self {
-        self.webhook_config = Some(config);
-        self
-    }
+    // /// 配置Webhook / Configure webhook (已移除 / Removed)
+    // pub fn with_webhook_config(mut self, config: crate::config::WebhookConfigLite) -> Self {
+    //     self.webhook_config = Some(config);
+    //     self
+    // }
 
     /// 配置鉴权 / Configure auth
     pub fn with_auth_config(mut self, config: crate::config::AuthConfigLite) -> Self {
@@ -115,22 +114,7 @@ impl VConnectIMServer {
             weight: 1,
             is_alive: true,
         });
-        let path = match v::get_global_config_manager() {
-            Ok(cm) => cm.get_or(
-                "storage.path",
-                format!(
-                    "{}/data/v-connect-im-{}",
-                    env!("CARGO_MANIFEST_DIR"),
-                    self.node_id
-                ),
-            ),
-            Err(_) => format!(
-                "{}/data/v-connect-im-{}",
-                env!("CARGO_MANIFEST_DIR"),
-                self.node_id
-            ),
-        };
-        self.storage = storage::Storage::open(&path).expect("open storage");
+        // storage 已移除，使用插件 / storage removed, use plugin
         self
     }
 
@@ -161,7 +145,7 @@ impl Clone for VConnectIMServer {
     fn clone(&self) -> Self {
         Self {
             connections: self.connections.clone(),
-            webhook_config: self.webhook_config.clone(),
+            // webhook_config: self.webhook_config.clone(),  // 已移除 / Removed
             auth_config: self.auth_config.clone(),
             plugin_registry: self.plugin_registry.clone(),
             plugin_runtime_manager: self.plugin_runtime_manager.clone(),
@@ -171,7 +155,6 @@ impl Clone for VConnectIMServer {
             node_id: self.node_id.clone(),
             directory: self.directory.clone(),
             broker: cluster::broker::ShardBroker::new(),
-            storage: storage::Storage::open_temporary().expect("open storage"),
             raft: self.raft.clone(),
             rooms: self.rooms.clone(),
             uid_clients: self.uid_clients.clone(),

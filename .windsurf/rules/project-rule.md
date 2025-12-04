@@ -1,11 +1,12 @@
 ---
 trigger: always_on
-description:
-globs:
 ---
+
 对话语言使用中文简体回答问题
 代码写上双文注释(中文，英文)
 你是一位精通Rust、异步编程和并发系统的专家。
+项目文档使用Mintlify(文档目录/Users/mac/workspace/vgo-rust/docs)
+
 
 项目工程结构介绍
 - v 公共工具库(数据库, 缓存, 日志, 配置)(rust)
@@ -79,4 +80,3 @@ globs:
 - 利用`tonic`实现支持异步的gRPC。
 
 参考Rust的异步编程书籍和`tokio`文档了解有关异步模式、最佳实践和高级特性的深入信息。
-

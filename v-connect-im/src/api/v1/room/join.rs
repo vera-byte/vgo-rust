@@ -25,8 +25,16 @@ pub async fn room_join_handle(
         .entry(req.room_id.clone())
         .or_default()
         .insert(req.uid.clone());
-    // 持久化加入 / Persist add
-    let _ = server.storage.add_room_member(&req.room_id, &req.uid);
+
+    // 通过存储插件持久化 / Persist through storage plugin
+    if let Some(pool) = server.plugin_connection_pool.as_ref() {
+        if let Err(e) = pool.storage_add_room_member(&req.room_id, &req.uid).await {
+            warn!(
+                "存储插件添加房间成员失败 / Storage plugin add room member failed: {}",
+                e
+            );
+        }
+    }
     let event_payload = serde_json::json!({
         "room_id": req.room_id.clone(),
         "uid": req.uid.clone()

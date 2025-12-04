@@ -91,6 +91,35 @@ impl VConnectIMServer {
         };
         let forward_json = serde_json::to_string(&forward_msg).unwrap_or_default();
 
+        // 保存消息到存储插件 / Save message to storage plugin
+        if let Some(pool) = self.plugin_connection_pool.as_ref() {
+            match pool
+                .storage_save_message(
+                    &message_id,
+                    &request.from_uid,
+                    &request.to_uid,
+                    &request.content,
+                    delivered_at,
+                    &message_type,
+                    None,
+                )
+                .await
+            {
+                Ok(true) => {
+                    tracing::debug!("💾 消息已保存到存储插件 / Message saved to storage plugin");
+                }
+                Ok(false) => {
+                    tracing::warn!("⚠️  存储插件保存失败 / Storage plugin save failed");
+                }
+                Err(e) => {
+                    tracing::error!("❌ 存储插件错误 / Storage plugin error: {}", e);
+                }
+            }
+        } else {
+            tracing::warn!("⚠️  插件连接池未初始化，消息未保存 / Plugin pool not initialized, message not saved");
+        }
+
+        // 保留 Raft 日志（用于集群同步）/ Keep Raft log (for cluster sync)
         let record = storage::MessageRecord {
             message_id: message_id.clone(),
             from_client_id: request.from_uid.clone(),
@@ -101,7 +130,6 @@ impl VConnectIMServer {
             room_id: None,
         };
         let _ = self.raft.append_entry_as(&self.node_id, &record);
-        let _ = self.storage.append(&record);
 
         let mut in_memory_delivery = false;
         if let Some(clients) = self.uid_clients.get(&request.to_uid) {
@@ -174,29 +202,49 @@ impl VConnectIMServer {
             }
 
             let _ = server.enforce_offline_quota_for_uid(&recipient_uid).await;
-            let record = storage::OfflineRecord {
-                message_id: message_id.clone(),
-                from_uid: None,
-                to_uid: recipient_uid.clone(),
-                room_id: room_id.clone(),
-                content: content.clone(),
-                timestamp: chrono::Utc::now().timestamp_millis(),
-                msg_type: msg_type.clone(),
-            };
-            let _ = server.storage.store_offline(&record);
-            server
-                .send_message_webhook(
-                    &message_id,
-                    &recipient_uid,
-                    &None,
-                    &None,
-                    &Some(recipient_uid.clone()),
-                    &content,
-                    &msg_type,
-                    "queued_offline",
-                    None,
-                )
-                .await;
+
+            // 保存离线消息到存储插件 / Save offline message to storage plugin
+            let timestamp = chrono::Utc::now().timestamp_millis();
+            if let Some(pool) = server.plugin_connection_pool.as_ref() {
+                match pool
+                    .storage_save_offline(
+                        &message_id,
+                        None,
+                        &recipient_uid,
+                        &content,
+                        timestamp,
+                        &msg_type,
+                        room_id.as_deref(),
+                    )
+                    .await
+                {
+                    Ok(true) => {
+                        tracing::debug!(
+                            "💾 离线消息已保存 / Offline message saved: {}",
+                            message_id
+                        );
+                    }
+                    Ok(false) => {
+                        tracing::warn!("⚠️  离线消息保存失败 / Offline message save failed");
+                    }
+                    Err(e) => {
+                        tracing::error!("❌ 离线消息保存错误 / Offline message save error: {}", e);
+                    }
+                }
+            }
+            // server  // 已移除 / Removed
+            //     .send_message_webhook(
+            //         &message_id,
+            //         &recipient_uid,
+            //         &None,
+            //         &None,
+            //         &Some(recipient_uid.clone()),
+            //         &content,
+            //         &msg_type,
+            //         "queued_offline",
+            //         None,
+            //     )
+            //     .await;
         });
     }
 }

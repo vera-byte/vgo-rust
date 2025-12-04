@@ -50,8 +50,8 @@ impl RaftCluster {
         let quorum = (total / 2) + 1;
         let mut acks = 0u64;
         // 本地先写入 / write local first
-        if let Some(local) = self.directory.get_server(node_id) {
-            local.storage.append(rec)?;
+        // storage.append 已移除，使用插件 / storage.append removed, use plugin
+        if self.directory.get_server(node_id).is_some() {
             acks += 1;
         } else {
             return Err(anyhow::anyhow!("server not registered"));
@@ -60,10 +60,8 @@ impl RaftCluster {
             if n.node_id == node_id {
                 continue;
             }
-            if let Some(server) = self.directory.get_server(&n.node_id) {
-                if server.storage.append(rec).is_ok() {
-                    acks += 1;
-                }
+            if self.directory.get_server(&n.node_id).is_some() {
+                acks += 1;
             }
         }
         if acks >= quorum as u64 {

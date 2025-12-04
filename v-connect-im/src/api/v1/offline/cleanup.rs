@@ -1,8 +1,8 @@
-use actix_web::{web, Responder};
+use crate::VConnectIMServer;
 use actix_web::http::StatusCode;
+use actix_web::{web, Responder};
 use std::sync::Arc;
 use v::response::respond_any;
-use crate::VConnectIMServer;
 
 #[derive(serde::Deserialize)]
 pub struct CleanupRequest {
@@ -16,13 +16,15 @@ pub fn register(cfg: &mut actix_web::web::ServiceConfig, path: &str) {
 }
 
 pub async fn offline_cleanup_handle(
-    server: web::Data<Arc<VConnectIMServer>>,
-    req: web::Json<CleanupRequest>,
+    _server: web::Data<Arc<VConnectIMServer>>,
+    _req: web::Json<CleanupRequest>,
 ) -> impl Responder {
-    let lim = req.limit.unwrap_or(1000);
-    match server.storage.cleanup_offline(&req.uid, req.before_ts, lim) {
-        Ok(removed) => respond_any(StatusCode::OK, serde_json::json!({"removed": removed})),
-        Err(e) => respond_any(StatusCode::BAD_REQUEST, serde_json::json!({"error": format!("{}", e)})),
-    }
+    // 离线消息清理功能已迁移到插件 / Offline cleanup feature migrated to plugin
+    respond_any(
+        StatusCode::SERVICE_UNAVAILABLE,
+        serde_json::json!({
+            "error": "Feature migrated to plugin",
+            "message": "离线消息清理需要存储插件 / Offline cleanup requires storage plugin"
+        }),
+    )
 }
-

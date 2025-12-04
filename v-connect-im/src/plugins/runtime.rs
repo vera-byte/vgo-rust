@@ -840,4 +840,345 @@ impl PluginConnectionPool {
 
         Ok(responses)
     }
+
+    /// 发送存储事件到存储插件 / Send storage event to storage plugin
+    ///
+    /// 查找支持 storage 能力的插件并发送事件
+    /// Find plugin that supports storage capability and send event
+    ///
+    /// # 参数 / Parameters
+    /// - `event_type`: 存储事件类型 / Storage event type (e.g., "storage.message.save")
+    /// - `payload`: 事件载荷数据 / Event payload data
+    ///
+    /// # 返回值 / Returns
+    /// - `Ok(Some(response))`: 存储插件响应 / Storage plugin response
+    /// - `Ok(None)`: 未找到存储插件 / Storage plugin not found
+    /// - `Err(e)`: 发送失败 / Send failed
+    pub async fn send_storage_event(
+        &self,
+        event_type: &str,
+        payload: &serde_json::Value,
+    ) -> Result<Option<serde_json::Value>> {
+        debug!("📦 发送存储事件 / Sending storage event: {}", event_type);
+
+        // 查找存储插件 / Find storage plugin
+        for entry in self.manager.plugins.iter() {
+            let runtime = entry.value();
+            let capabilities = runtime.capabilities();
+
+            // 检查是否支持 storage 能力 / Check if supports storage capability
+            if capabilities.iter().any(|cap| cap == "storage") {
+                let plugin_name = entry.key();
+                debug!("🎯 找到存储插件 / Found storage plugin: {}", plugin_name);
+
+                // 发送事件到存储插件 / Send event to storage plugin
+                match self.send_event(plugin_name, event_type, payload).await {
+                    Ok(Some(response)) => {
+                        debug!(
+                            "✅ 存储插件响应成功 / Storage plugin responded: {:?}",
+                            response
+                        );
+                        return Ok(Some(response));
+                    }
+                    Ok(None) => {
+                        warn!("⚠️  存储插件未连接 / Storage plugin not connected");
+                        return Ok(None);
+                    }
+                    Err(e) => {
+                        error!("❌ 存储插件调用失败 / Storage plugin call failed: {}", e);
+                        return Err(e);
+                    }
+                }
+            }
+        }
+
+        warn!("⚠️  未找到存储插件 / Storage plugin not found");
+        Ok(None)
+    }
+
+    /// 保存消息到存储插件 / Save message to storage plugin
+    pub async fn storage_save_message(
+        &self,
+        message_id: &str,
+        from_uid: &str,
+        to_uid: &str,
+        content: &serde_json::Value,
+        timestamp: i64,
+        msg_type: &str,
+        room_id: Option<&str>,
+    ) -> Result<bool> {
+        let payload = serde_json::json!({
+            "message_id": message_id,
+            "from_uid": from_uid,
+            "to_uid": to_uid,
+            "content": content,
+            "timestamp": timestamp,
+            "msg_type": msg_type,
+            "room_id": room_id
+        });
+
+        match self
+            .send_storage_event("storage.message.save", &payload)
+            .await
+        {
+            Ok(Some(response)) => {
+                if response.get("status").and_then(|v| v.as_str()) == Some("ok") {
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            }
+            Ok(None) => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// 保存离线消息到存储插件 / Save offline message to storage plugin
+    pub async fn storage_save_offline(
+        &self,
+        message_id: &str,
+        from_uid: Option<&str>,
+        to_uid: &str,
+        content: &serde_json::Value,
+        timestamp: i64,
+        msg_type: &str,
+        room_id: Option<&str>,
+    ) -> Result<bool> {
+        let payload = serde_json::json!({
+            "message_id": message_id,
+            "from_uid": from_uid,
+            "to_uid": to_uid,
+            "content": content,
+            "timestamp": timestamp,
+            "msg_type": msg_type,
+            "room_id": room_id
+        });
+
+        match self
+            .send_storage_event("storage.offline.save", &payload)
+            .await
+        {
+            Ok(Some(response)) => {
+                if response.get("status").and_then(|v| v.as_str()) == Some("ok") {
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            }
+            Ok(None) => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// 拉取离线消息 / Pull offline messages
+    pub async fn storage_pull_offline(
+        &self,
+        to_uid: &str,
+        limit: usize,
+    ) -> Result<Vec<serde_json::Value>> {
+        let payload = serde_json::json!({
+            "to_uid": to_uid,
+            "limit": limit
+        });
+
+        match self
+            .send_storage_event("storage.offline.pull", &payload)
+            .await
+        {
+            Ok(Some(response)) => {
+                if let Some(messages) = response.get("messages").and_then(|v| v.as_array()) {
+                    Ok(messages.clone())
+                } else {
+                    Ok(Vec::new())
+                }
+            }
+            Ok(None) => Ok(Vec::new()),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// 查询历史消息 / Query message history
+    pub async fn storage_query_history(
+        &self,
+        uid: Option<&str>,
+        peer: Option<&str>,
+        since_ts: Option<i64>,
+        until_ts: Option<i64>,
+        limit: usize,
+    ) -> Result<Vec<serde_json::Value>> {
+        let payload = serde_json::json!({
+            "uid": uid,
+            "peer": peer,
+            "since_ts": since_ts,
+            "until_ts": until_ts,
+            "limit": limit
+        });
+
+        match self
+            .send_storage_event("storage.message.history", &payload)
+            .await
+        {
+            Ok(Some(response)) => {
+                // 插件响应格式: {"status": "ok", "data": {"messages": [...], "count": N}}
+                // Plugin response format: {"status": "ok", "data": {"messages": [...], "count": N}}
+                let data = response.get("data").unwrap_or(&response);
+                if let Some(messages) = data.get("messages").and_then(|v| v.as_array()) {
+                    Ok(messages.clone())
+                } else {
+                    Ok(Vec::new())
+                }
+            }
+            Ok(None) => Ok(Vec::new()),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// 确认离线消息 / Acknowledge offline messages
+    pub async fn storage_ack_offline(&self, to_uid: &str, message_ids: &[String]) -> Result<usize> {
+        let payload = serde_json::json!({
+            "to_uid": to_uid,
+            "message_ids": message_ids
+        });
+
+        match self
+            .send_storage_event("storage.offline.ack", &payload)
+            .await
+        {
+            Ok(Some(response)) => {
+                if let Some(removed) = response.get("removed").and_then(|v| v.as_u64()) {
+                    Ok(removed as usize)
+                } else {
+                    Ok(0)
+                }
+            }
+            Ok(None) => Ok(0),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// 统计离线消息数量 / Count offline messages
+    pub async fn storage_count_offline(&self, to_uid: &str) -> Result<usize> {
+        let payload = serde_json::json!({
+            "to_uid": to_uid
+        });
+
+        match self
+            .send_storage_event("storage.offline.count", &payload)
+            .await
+        {
+            Ok(Some(response)) => {
+                if let Some(count) = response.get("count").and_then(|v| v.as_u64()) {
+                    Ok(count as usize)
+                } else {
+                    Ok(0)
+                }
+            }
+            Ok(None) => Ok(0),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// 添加房间成员 / Add room member
+    pub async fn storage_add_room_member(&self, room_id: &str, uid: &str) -> Result<bool> {
+        let payload = serde_json::json!({
+            "room_id": room_id,
+            "uid": uid
+        });
+
+        match self
+            .send_storage_event("storage.room.add_member", &payload)
+            .await
+        {
+            Ok(Some(response)) => Ok(response.get("status").and_then(|v| v.as_str()) == Some("ok")),
+            Ok(None) => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// 移除房间成员 / Remove room member
+    pub async fn storage_remove_room_member(&self, room_id: &str, uid: &str) -> Result<bool> {
+        let payload = serde_json::json!({
+            "room_id": room_id,
+            "uid": uid
+        });
+
+        match self
+            .send_storage_event("storage.room.remove_member", &payload)
+            .await
+        {
+            Ok(Some(response)) => Ok(response.get("status").and_then(|v| v.as_str()) == Some("ok")),
+            Ok(None) => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// 列出房间成员 / List room members
+    pub async fn storage_list_room_members(&self, room_id: &str) -> Result<Vec<String>> {
+        let payload = serde_json::json!({
+            "room_id": room_id
+        });
+
+        match self
+            .send_storage_event("storage.room.list_members", &payload)
+            .await
+        {
+            Ok(Some(response)) => {
+                if let Some(members) = response.get("members").and_then(|v| v.as_array()) {
+                    Ok(members
+                        .iter()
+                        .filter_map(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .collect())
+                } else {
+                    Ok(Vec::new())
+                }
+            }
+            Ok(None) => Ok(Vec::new()),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// 列出所有房间 / List all rooms
+    pub async fn storage_list_rooms(&self) -> Result<Vec<String>> {
+        let payload = serde_json::json!({});
+
+        match self.send_storage_event("storage.room.list", &payload).await {
+            Ok(Some(response)) => {
+                if let Some(rooms) = response.get("rooms").and_then(|v| v.as_array()) {
+                    Ok(rooms
+                        .iter()
+                        .filter_map(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .collect())
+                } else {
+                    Ok(Vec::new())
+                }
+            }
+            Ok(None) => Ok(Vec::new()),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// 记录已读回执 / Record read receipt
+    pub async fn storage_record_read(
+        &self,
+        uid: &str,
+        message_id: &str,
+        timestamp: i64,
+    ) -> Result<bool> {
+        let payload = serde_json::json!({
+            "uid": uid,
+            "message_id": message_id,
+            "timestamp": timestamp
+        });
+
+        match self
+            .send_storage_event("storage.read.record", &payload)
+            .await
+        {
+            Ok(Some(response)) => Ok(response.get("status").and_then(|v| v.as_str()) == Some("ok")),
+            Ok(None) => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
 }

@@ -75,4 +75,6 @@ debug = true
 # 示例 / Example: "example:/Users/mac/workspace/v-connect-im-plugin-example"
 dev_plugins = [
     "example:/Users/mac/workspace/v-connect-im-plugin-example",
+    "storage-sled:/Users/mac/workspace/v-connect-im-plugin-storage",
+
 ]

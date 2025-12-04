@@ -1,8 +1,8 @@
-use actix_web::{web, Responder};
+use crate::VConnectIMServer;
 use actix_web::http::StatusCode;
+use actix_web::{web, Responder};
 use std::sync::Arc;
 use v::response::respond_any;
-use crate::VConnectIMServer;
 
 #[derive(serde::Deserialize)]
 pub struct MembersPageQuery {
@@ -24,18 +24,15 @@ pub fn register(cfg: &mut actix_web::web::ServiceConfig, path: &str) {
 }
 
 pub async fn members_page_handle(
-    server: web::Data<Arc<VConnectIMServer>>,
-    query: web::Query<MembersPageQuery>,
+    _server: web::Data<Arc<VConnectIMServer>>,
+    _query: web::Query<MembersPageQuery>,
 ) -> impl Responder {
-    let limit = query.limit.unwrap_or(50);
-    match server.storage.list_room_members_paginated(
-        &query.room_id,
-        query.uid_prefix.as_deref(),
-        query.cursor.clone(),
-        limit,
-    ) {
-        Ok((members, next)) => respond_any(StatusCode::OK, MembersPageResponse { room_id: query.room_id.clone(), members, next_cursor: next }),
-        Err(e) => respond_any(StatusCode::BAD_REQUEST, serde_json::json!({"error": format!("{}", e)})),
-    }
+    // 房间成员分页功能已迁移到插件 / Room members pagination feature migrated to plugin
+    respond_any(
+        StatusCode::SERVICE_UNAVAILABLE,
+        serde_json::json!({
+            "error": "Feature migrated to plugin",
+            "message": "房间成员分页需要存储插件 / Room members pagination requires storage plugin"
+        }),
+    )
 }
-

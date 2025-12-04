@@ -6,11 +6,11 @@ pub struct AuthConfigLite {
     pub timeout_ms: u64,
 }
 
-#[derive(Clone)]
-/// 精简 Webhook 配置 / Lightweight webhook configuration used by the server.
-pub struct WebhookConfigLite {
-    pub url: Option<String>,
-    pub timeout_ms: u64,
-    pub secret: Option<String>,
-    pub enabled: bool,
-}
+// #[derive(Clone)]
+// /// 精简 Webhook 配置 / Lightweight webhook configuration used by the server. (已移除 / Removed)
+// pub struct WebhookConfigLite {
+//     pub url: Option<String>,
+//     pub timeout_ms: u64,
+//     pub secret: Option<String>,
+//     pub enabled: bool,
+// }

@@ -1,8 +1,8 @@
-use actix_web::{web, Responder};
+use crate::VConnectIMServer;
 use actix_web::http::StatusCode;
+use actix_web::{web, Responder};
 use std::sync::Arc;
 use v::response::respond_any;
-use crate::VConnectIMServer;
 
 #[derive(serde::Deserialize)]
 pub struct MembersQuery {
@@ -24,14 +24,30 @@ pub async fn room_members_handle(
     server: web::Data<Arc<VConnectIMServer>>,
     query: web::Query<MembersQuery>,
 ) -> impl Responder {
-    match server.storage.list_room_members(&query.room_id) {
-        Ok(members) => respond_any(
-            StatusCode::OK,
-            MembersResponse { room_id: query.room_id.clone(), count: members.len(), members },
-        ),
-        Err(e) => respond_any(StatusCode::BAD_REQUEST, serde_json::json!({
-            "error": format!("{}", e)
-        })),
+    // 通过存储插件列出房间成员 / List room members through storage plugin
+    if let Some(pool) = server.plugin_connection_pool.as_ref() {
+        match pool.storage_list_room_members(&query.room_id).await {
+            Ok(members) => respond_any(
+                StatusCode::OK,
+                MembersResponse {
+                    room_id: query.room_id.clone(),
+                    count: members.len(),
+                    members,
+                },
+            ),
+            Err(e) => respond_any(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                serde_json::json!({
+                    "error": format!("存储插件错误 / Storage plugin error: {}", e)
+                }),
+            ),
+        }
+    } else {
+        respond_any(
+            StatusCode::SERVICE_UNAVAILABLE,
+            serde_json::json!({
+                "error": "存储插件未初始化 / Storage plugin not initialized"
+            }),
+        )
     }
 }
-

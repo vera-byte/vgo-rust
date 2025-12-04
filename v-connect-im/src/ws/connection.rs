@@ -52,8 +52,8 @@ pub async fn handle_connection(
         .register_client_location(&client_id, &server.node_id);
     tracing::info!("✅ Client {} connected from {}", client_id, peer_addr);
 
-    crate::service::webhook::send_client_online_webhook(&server, &client_id, &None, &peer_addr)
-        .await;
+    // crate::service::webhook::send_client_online_webhook(&server, &client_id, &None, &peer_addr)  // 已移除 / Removed
+    //     .await;
     let welcome_text = "Welcome to v-connect-im Server".to_string();
     let welcome_msg = crate::domain::message::ConnectResponse {
         status: "connected".to_string(),
@@ -117,14 +117,14 @@ pub async fn handle_connection(
                 .unwrap()
                 .elapsed()
                 .as_millis() as i64;
-        crate::service::webhook::send_client_offline_webhook(
-            &server,
-            &client_id,
-            &connection.uid,
-            &connection.addr,
-            connected_at,
-        )
-        .await;
+        // crate::service::webhook::send_client_offline_webhook(  // 已移除 / Removed
+        //     &server,
+        //     &client_id,
+        //     &connection.uid,
+        //     &connection.addr,
+        //     connected_at,
+        // )
+        // .await;
         if let Some(uid) = &connection.uid {
             if let Some(set) = server.uid_clients.get_mut(uid) {
                 set.remove(&client_id);

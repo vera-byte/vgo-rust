@@ -165,6 +165,15 @@ pub trait Plugin: Sized {
     fn on_config_update(&mut self, _config: Self::Config) -> Result<()> {
         Ok(())
     }
+
+    /// 声明插件能力（可选）/ Declare plugin capabilities (optional)
+    ///
+    /// 默认返回空能力，插件需要明确声明所需的能力
+    /// Default returns empty capabilities, plugins must explicitly declare required capabilities
+    fn capabilities(&self) -> Vec<String> {
+        // 默认无能力，插件需要明确申请 / Default no capabilities, plugins must explicitly request
+        vec![]
+    }
 }
 
 /// 插件包装器，将 Plugin trait 适配到 PluginHandler
@@ -186,13 +195,8 @@ impl<P: Plugin> PluginHandler for PluginWrapper<P> {
     }
 
     fn capabilities(&self) -> Vec<String> {
-        // 默认支持所有能力 / Default to all capabilities
-        vec![
-            "message".into(),
-            "room".into(),
-            "connection".into(),
-            "user".into(),
-        ]
+        // 调用插件的 capabilities 方法 / Call plugin's capabilities method
+        self.plugin.capabilities()
     }
 
     fn priority(&self) -> i32 {

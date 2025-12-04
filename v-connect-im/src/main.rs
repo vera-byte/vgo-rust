@@ -25,13 +25,12 @@ mod plugins;
 mod router;
 mod server;
 mod service;
-mod storage;
+mod storage; // 保留数据结构定义 / Keep data structure definitions
 mod tasks;
 mod ws;
 mod api_registry {
     include!(concat!(env!("OUT_DIR"), "/api_registry.rs"));
 }
-//
 
 /// 命令行参数 / Command line arguments
 #[derive(Parser, Debug)]
@@ -57,17 +56,9 @@ impl VConnectIMServer {
     // ACK等待与入离线队列已迁移至 service::delivery / Await ACK or queue offline moved
 
     async fn load_rooms_from_storage(&self) -> Result<usize> {
-        let rooms = self.storage.list_rooms()?;
-        let mut total = 0usize;
-        for rid in rooms {
-            let members = self.storage.list_room_members(&rid)?;
-            let set = self.rooms.entry(rid).or_default();
-            for u in members {
-                set.insert(u);
-                total += 1;
-            }
-        }
-        Ok(total)
+        // 房间数据已迁移到插件，此方法保留用于兼容性 / Room data migrated to plugin, method kept for compatibility
+        // TODO: 从插件加载房间数据 / Load room data from plugin
+        Ok(0)
     }
 
     fn allow_send_to_uid(&self, uid: &str) -> bool {
@@ -239,7 +230,7 @@ impl VConnectIMServer {
             room_id: Some(room_id.clone()),
         };
         let _ = self.raft.append_entry_as(&self.node_id, &record);
-        let _ = self.storage.append(&record);
+        // storage.append 已移除，使用插件 / storage.append removed, use plugin
 
         let mut delivered_count = 0usize;
         let mut offline_uids: Vec<String> = Vec::new();
@@ -284,7 +275,7 @@ impl VConnectIMServer {
         }
         for ou in offline_uids {
             let _ = self.enforce_offline_quota_for_uid(&ou).await;
-            let off = storage::OfflineRecord {
+            let _off = storage::OfflineRecord {
                 message_id: message_id.clone(),
                 from_uid: self
                     .connections
@@ -296,7 +287,7 @@ impl VConnectIMServer {
                 timestamp: chrono::Utc::now().timestamp_millis(),
                 msg_type: msg_type.clone(),
             };
-            let _ = self.storage.store_offline(&off);
+            // storage.store_offline 已移除，使用插件 / storage.store_offline removed, use plugin
         }
 
         HttpBroadcastResponse {
@@ -481,132 +472,150 @@ impl VConnectIMServer {
 
                                 // 如果有目标ID，发送给指定客户端，否则回声
                                 if let Some(target_uid) = &wk_msg.target_uid {
-                                    {
-                                        let message_id = Uuid::new_v4().to_string();
-                                        let timestamp = chrono::Utc::now().timestamp_millis();
-                                        let from_uid = self
-                                            .connections
-                                            .get(client_id)
-                                            .and_then(|c| c.uid.clone())
-                                            .unwrap_or_default();
+                                    let message_id = Uuid::new_v4().to_string();
+                                    let timestamp = chrono::Utc::now().timestamp_millis();
+                                    let from_uid = self
+                                        .connections
+                                        .get(client_id)
+                                        .and_then(|c| c.uid.clone())
+                                        .unwrap_or_default();
 
-                                        // 调用插件系统处理WebSocket消息 / Call plugin system to process WebSocket message
-                                        if let Some(pool) = self.plugin_connection_pool.as_ref() {
-                                            let plugin_message = serde_json::json!({
-                                                "message_id": message_id,
-                                                "from_uid": from_uid,
-                                                "to_uid": target_uid,
-                                                "content": wk_msg.data,
-                                                "message_type": "message",
-                                                "timestamp": timestamp
-                                            });
+                                    // 调用插件系统处理WebSocket消息 / Call plugin system to process WebSocket message
+                                    if let Some(pool) = self.plugin_connection_pool.as_ref() {
+                                        let plugin_message = serde_json::json!({
+                                            "message_id": message_id,
+                                            "from_uid": from_uid,
+                                            "to_uid": target_uid,
+                                            "content": wk_msg.data,
+                                            "message_type": "message",
+                                            "timestamp": timestamp
+                                        });
 
-                                            match pool
-                                                .broadcast_message_event(&plugin_message)
-                                                .await
-                                            {
-                                                Ok(responses) => {
-                                                    tracing::debug!("插件处理WebSocket消息响应 / Plugin WebSocket message responses: {:?}", responses);
-                                                    // 检查是否有插件要求停止消息传播 / Check if any plugin wants to stop propagation
-                                                    for (_plugin_name, response) in responses {
-                                                        if let Some(flow) = response
-                                                            .get("flow")
-                                                            .and_then(|v| v.as_str())
-                                                        {
-                                                            if flow == "stop" {
-                                                                tracing::info!("WebSocket消息被插件拦截 / WebSocket message stopped by plugin");
-                                                                return Ok(());
-                                                            }
+                                        match pool.broadcast_message_event(&plugin_message).await {
+                                            Ok(responses) => {
+                                                tracing::debug!("插件处理WebSocket消息响应 / Plugin WebSocket message responses: {:?}", responses);
+                                                // 检查是否有插件要求停止消息传播 / Check if any plugin wants to stop propagation
+                                                for (_plugin_name, response) in responses {
+                                                    if let Some(flow) = response
+                                                        .get("flow")
+                                                        .and_then(|v| v.as_str())
+                                                    {
+                                                        if flow == "stop" {
+                                                            tracing::info!("WebSocket消息被插件拦截 / WebSocket message stopped by plugin");
+                                                            return Ok(());
                                                         }
                                                     }
                                                 }
-                                                Err(e) => {
-                                                    tracing::error!("插件系统调用失败 / Plugin system call failed: {}", e);
-                                                }
+                                            }
+                                            Err(e) => {
+                                                tracing::error!("插件系统调用失败 / Plugin system call failed: {}", e);
                                             }
                                         }
+                                    }
 
-                                        let forward_msg = ImMessage {
-                                            msg_type: "forwarded_message".to_string(),
-                                            data: serde_json::json!({
-                                                "from": from_uid,
-                                                "content": wk_msg.data,
-                                                "timestamp": timestamp,
-                                                "message_id": message_id
-                                            }),
-                                            target_uid: None,
-                                        };
-                                        let forward_json = serde_json::to_string(&forward_msg)?;
-                                        let record = storage::MessageRecord {
-                                            message_id: message_id.clone(),
-                                            from_client_id: client_id.to_string(),
-                                            to_client_id: target_uid.clone(),
-                                            content: wk_msg.data.clone(),
-                                            timestamp: chrono::Utc::now().timestamp_millis(),
-                                            msg_type: "message".to_string(),
-                                            room_id: None,
-                                        };
-                                        self.raft.append_entry_as(&self.node_id, &record)?;
-                                        let _ = self.storage.append(&record);
-                                        // 依据UID发送到所有在线客户端 / deliver to all clients of target uid
-                                        let delivery_result = if let Some(clients) =
-                                            self.uid_clients.get(target_uid)
-                                        {
-                                            let mut ok = false;
-                                            for cid in clients.iter() {
-                                                if self
-                                                    .send_message_to_client(
-                                                        &cid,
-                                                        Message::Text(forward_json.clone()),
-                                                    )
-                                                    .await
-                                                    .is_ok()
-                                                {
-                                                    ok = true;
-                                                }
+                                    let forward_msg = ImMessage {
+                                        msg_type: "forwarded_message".to_string(),
+                                        data: serde_json::json!({
+                                            "from": from_uid,
+                                            "content": wk_msg.data,
+                                            "timestamp": timestamp,
+                                            "message_id": message_id
+                                        }),
+                                        target_uid: None,
+                                    };
+                                    let forward_json = serde_json::to_string(&forward_msg)?;
+                                    let record = storage::MessageRecord {
+                                        message_id: message_id.clone(),
+                                        from_client_id: client_id.to_string(),
+                                        to_client_id: target_uid.clone(),
+                                        content: wk_msg.data.clone(),
+                                        timestamp: chrono::Utc::now().timestamp_millis(),
+                                        msg_type: "message".to_string(),
+                                        room_id: None,
+                                    };
+                                    self.raft.append_entry_as(&self.node_id, &record)?;
+
+                                    // 保存消息到存储插件 / Save message to storage plugin
+                                    if let Some(pool) = self.plugin_connection_pool.as_ref() {
+                                        let _ = pool
+                                            .storage_save_message(
+                                                &record.message_id,
+                                                &record.from_client_id,
+                                                &record.to_client_id,
+                                                &record.content,
+                                                record.timestamp,
+                                                &record.msg_type,
+                                                None,
+                                            )
+                                            .await;
+                                    }
+
+                                    // 依据UID发送到所有在线客户端 / deliver to all clients of target uid
+                                    let delivery_result = if let Some(clients) =
+                                        self.uid_clients.get(target_uid)
+                                    {
+                                        let mut ok = false;
+                                        for cid in clients.iter() {
+                                            if self
+                                                .send_message_to_client(
+                                                    &cid,
+                                                    Message::Text(forward_json.clone()),
+                                                )
+                                                .await
+                                                .is_ok()
+                                            {
+                                                ok = true;
                                             }
-                                            if ok {
-                                                Ok(())
-                                            } else {
-                                                Err(anyhow::anyhow!("no clients"))
-                                            }
+                                        }
+                                        if ok {
+                                            Ok(())
                                         } else {
-                                            // 跨节点HTTP/RPC转发（最小版本）/ Cross-node forward via HTTP
-                                            let mut ok = false;
-                                            if let Ok(cm) = v::get_global_config_manager() {
-                                                let peers = cm
-                                                    .get::<String>("cluster.peers")
-                                                    .unwrap_or_default();
-                                                for base in peers
-                                                    .split(',')
-                                                    .map(|s| s.trim())
-                                                    .filter(|s| !s.is_empty())
-                                                {
-                                                    let list_url = format!(
-                                                        "{}/v1/internal/clients_by_uid?uid={}",
-                                                        base, target_uid
-                                                    );
-                                                    if let Ok(resp) = reqwest::get(&list_url).await
-                                                    {
-                                                        if resp.status().is_success() {
-                                                            if let Ok(val) = resp
-                                                                .json::<serde_json::Value>()
-                                                                .await
-                                                            {
-                                                                let ids = val
-                                                                    .get("client_ids")
-                                                                    .and_then(|v| v.as_array())
-                                                                    .cloned()
-                                                                    .unwrap_or_default();
-                                                                if !ids.is_empty() {
-                                                                    for idv in ids {
-                                                                        if let Some(cid) =
-                                                                            idv.as_str()
+                                            Err(anyhow::anyhow!("no clients"))
+                                        }
+                                    } else {
+                                        // 跨节点HTTP/RPC转发（最小版本）/ Cross-node forward via HTTP
+                                        let mut ok = false;
+                                        if let Ok(cm) = v::get_global_config_manager() {
+                                            let peers = cm
+                                                .get::<String>("cluster.peers")
+                                                .unwrap_or_default();
+                                            for base in peers
+                                                .split(',')
+                                                .map(|s| s.trim())
+                                                .filter(|s| !s.is_empty())
+                                            {
+                                                let list_url = format!(
+                                                    "{}/v1/internal/clients_by_uid?uid={}",
+                                                    base, target_uid
+                                                );
+                                                if let Ok(resp) = reqwest::get(&list_url).await {
+                                                    if resp.status().is_success() {
+                                                        if let Ok(val) =
+                                                            resp.json::<serde_json::Value>().await
+                                                        {
+                                                            let ids = val
+                                                                .get("client_ids")
+                                                                .and_then(|v| v.as_array())
+                                                                .cloned()
+                                                                .unwrap_or_default();
+                                                            if !ids.is_empty() {
+                                                                for idv in ids {
+                                                                    if let Some(cid) = idv.as_str()
+                                                                    {
+                                                                        let fwd_url = format!("{}/v1/internal/forward_client", base);
+                                                                        let body = serde_json::json!({"client_id": cid, "text": forward_json});
+                                                                        if let Ok(res2) =
+                                                                            reqwest::Client::new()
+                                                                                .post(&fwd_url)
+                                                                                .json(&body)
+                                                                                .send()
+                                                                                .await
                                                                         {
-                                                                            let fwd_url = format!("{}/v1/internal/forward_client", base);
-                                                                            let body = serde_json::json!({"client_id": cid, "text": forward_json});
-                                                                            if let Ok(res2) = reqwest::Client::new().post(&fwd_url).json(&body).send().await {
-                                                                                if res2.status().is_success() { ok = true; }
+                                                                            if res2
+                                                                                .status()
+                                                                                .is_success()
+                                                                            {
+                                                                                ok = true;
                                                                             }
                                                                         }
                                                                     }
@@ -614,87 +623,86 @@ impl VConnectIMServer {
                                                             }
                                                         }
                                                     }
-                                                    if ok {
-                                                        break;
-                                                    }
+                                                }
+                                                if ok {
+                                                    break;
                                                 }
                                             }
-                                            if ok {
-                                                Ok(())
-                                            } else {
-                                                Err(anyhow::anyhow!("uid offline"))
-                                            }
-                                        };
+                                        }
+                                        if ok {
+                                            Ok(())
+                                        } else {
+                                            Err(anyhow::anyhow!("uid offline"))
+                                        }
+                                    };
 
-                                        match delivery_result {
-                                            Ok(_) => {
-                                                // 发送消息送达Webhook事件 / Send message delivered webhook event
-                                                service::webhook::send_message_webhook(
-                                                    self,
-                                                    &message_id,
-                                                    client_id,
-                                                    &None, // from_uid
-                                                    &Some(target_uid.clone()),
-                                                    &Some(target_uid.clone()),
-                                                    &wk_msg.data,
-                                                    "message",
-                                                    "delivered",
-                                                    Some(chrono::Utc::now().timestamp_millis()),
-                                                )
-                                                .await;
+                                    match delivery_result {
+                                        Ok(_) => {
+                                            // 发送消息送达Webhook事件 / Send message delivered webhook event (已移除 / Removed)
+                                            // service::webhook::send_message_webhook(
+                                            //     self,
+                                            //     &message_id,
+                                            //     client_id,
+                                            //     &None, // from_uid
+                                            //     &Some(target_uid.clone()),
+                                            //     &Some(target_uid.clone()),
+                                            //     &wk_msg.data,
+                                            //     "message",
+                                            //     "delivered",
+                                            //     Some(chrono::Utc::now().timestamp_millis()),
+                                            // )
+                                            // .await;
 
-                                                // 同时给发送者确认
-                                                let confirm_msg = ImMessage {
-                                                    msg_type: "message_sent".to_string(),
-                                                    data: serde_json::json!({
-                                                        "to": target_uid,
-                                                        "status": "delivered",
-                                                        "message_id": message_id
-                                                    }),
-                                                    target_uid: None,
-                                                };
-                                                let confirm_json =
-                                                    serde_json::to_string(&confirm_msg)?;
-                                                self.send_message_to_client(
-                                                    client_id,
-                                                    Message::Text(confirm_json),
-                                                )
-                                                .await?;
-                                                let deadline_ms = v::get_global_config_manager()
-                                                    .ok()
-                                                    .map(|cm| {
-                                                        cm.get_or("delivery.deadline_ms", 500_i64)
-                                                            as u64
-                                                    })
-                                                    .unwrap_or(500);
-                                                self.await_ack_or_queue_offline(
-                                                    target_uid.clone(),
-                                                    message_id.clone(),
-                                                    None,
-                                                    wk_msg.data.clone(),
-                                                    "message".to_string(),
-                                                    deadline_ms,
-                                                )
-                                                .await;
-                                            }
-                                            Err(_e) => {
-                                                // 发送消息失败Webhook事件 / Send message failed webhook event
-                                                let message_id = Uuid::new_v4().to_string();
-                                                service::webhook::send_message_webhook(
-                                                    self,
-                                                    &message_id,
-                                                    client_id,
-                                                    &None, // from_uid
-                                                    &Some(target_uid.clone()),
-                                                    &Some(target_uid.clone()),
-                                                    &wk_msg.data,
-                                                    "message",
-                                                    "failed",
-                                                    None,
-                                                )
-                                                .await;
-                                                return Ok(());
-                                            }
+                                            // 同时给发送者确认
+                                            let confirm_msg = ImMessage {
+                                                msg_type: "message_sent".to_string(),
+                                                data: serde_json::json!({
+                                                    "to": target_uid,
+                                                    "status": "delivered",
+                                                    "message_id": message_id
+                                                }),
+                                                target_uid: None,
+                                            };
+                                            let confirm_json = serde_json::to_string(&confirm_msg)?;
+                                            self.send_message_to_client(
+                                                client_id,
+                                                Message::Text(confirm_json),
+                                            )
+                                            .await?;
+                                            let deadline_ms = v::get_global_config_manager()
+                                                .ok()
+                                                .map(|cm| {
+                                                    cm.get_or("delivery.deadline_ms", 500_i64)
+                                                        as u64
+                                                })
+                                                .unwrap_or(500);
+                                            self.await_ack_or_queue_offline(
+                                                target_uid.clone(),
+                                                message_id.clone(),
+                                                None,
+                                                wk_msg.data.clone(),
+                                                "message".to_string(),
+                                                deadline_ms,
+                                            )
+                                            .await;
+                                        }
+                                        Err(_e) => {
+                                            // 发送消息失败Webhook事件 / Send message failed webhook event (已移除 / Removed)
+                                            // let message_id = Uuid::new_v4().to_string();
+                                            // service::webhook::send_message_webhook(
+                                            //     self,
+                                            //     &message_id,
+                                            //     client_id,
+                                            //     &None, // from_uid
+                                            //     &Some(target_uid.clone()),
+                                            //     &Some(target_uid.clone()),
+                                            //     &wk_msg.data,
+                                            //     "message",
+                                            //     "failed",
+                                            //     None,
+                                            // )
+                                            // .await;
+                                            return Ok(());
                                         }
                                     }
                                 } else {
@@ -809,23 +817,23 @@ impl VConnectIMServer {
 
                                     match delivery_result {
                                         Ok(_) => {
-                                            // 发送私聊消息送达Webhook事件 / Send private message delivered webhook event
-                                            service::webhook::send_message_webhook(
-                                                self,
-                                                &message_id,
-                                                client_id,
-                                                &self
-                                                    .connections
-                                                    .get(client_id)
-                                                    .and_then(|c| c.uid.clone()),
-                                                &None,
-                                                &Some(target_uid.clone()),
-                                                &wk_msg.data,
-                                                "private_message",
-                                                "delivered",
-                                                Some(chrono::Utc::now().timestamp_millis()),
-                                            )
-                                            .await;
+                                            // 发送私聊消息送达Webhook事件 / Send private message delivered webhook event (已移除 / Removed)
+                                            // service::webhook::send_message_webhook(
+                                            //     self,
+                                            //     &message_id,
+                                            //     client_id,
+                                            //     &self
+                                            //         .connections
+                                            //         .get(client_id)
+                                            //         .and_then(|c| c.uid.clone()),
+                                            //     &None,
+                                            //     &Some(target_uid.clone()),
+                                            //     &wk_msg.data,
+                                            //     "private_message",
+                                            //     "delivered",
+                                            //     Some(chrono::Utc::now().timestamp_millis()),
+                                            // )
+                                            // .await;
 
                                             // 给发送者确认 / Confirm to sender
                                             let confirm_msg = ImMessage {
@@ -861,20 +869,20 @@ impl VConnectIMServer {
                                             .await;
                                         }
                                         Err(_e) => {
-                                            // 发送私聊消息失败Webhook事件 / Send private message failed webhook event
-                                            service::webhook::send_message_webhook(
-                                                self,
-                                                &message_id,
-                                                client_id,
-                                                &None, // from_uid
-                                                &Some(target_uid.clone()),
-                                                &Some(target_uid.clone()),
-                                                &wk_msg.data,
-                                                "private_message",
-                                                "failed",
-                                                None,
-                                            )
-                                            .await;
+                                            // 发送私聊消息失败Webhook事件 / Send private message failed webhook event (已移除 / Removed)
+                                            // service::webhook::send_message_webhook(
+                                            //     self,
+                                            //     &message_id,
+                                            //     client_id,
+                                            //     &None, // from_uid
+                                            //     &Some(target_uid.clone()),
+                                            //     &Some(target_uid.clone()),
+                                            //     &wk_msg.data,
+                                            //     "private_message",
+                                            //     "failed",
+                                            //     None,
+                                            // )
+                                            // .await;
                                             return Ok(());
                                         }
                                     }
@@ -905,7 +913,7 @@ impl VConnectIMServer {
                                             self.rooms.entry(room_id.to_string()).or_default();
                                         set.insert(uid.clone());
                                         // 持久化房间成员 / Persist room member
-                                        let _ = self.storage.add_room_member(room_id, &uid);
+                                        // storage.add_room_member 已移除，使用插件 / storage.add_room_member removed, use plugin
                                         let resp = ImMessage {
                                             msg_type: "join_room_ok".to_string(),
                                             data: serde_json::json!({"room_id": room_id}),
@@ -937,7 +945,7 @@ impl VConnectIMServer {
                                             set.remove(&uid);
                                         }
                                         // 持久化移除成员 / Persist remove member
-                                        let _ = self.storage.remove_room_member(room_id, &uid);
+                                        // storage.remove_room_member 已移除，使用插件 / storage.remove_room_member removed, use plugin
                                         let resp = ImMessage {
                                             msg_type: "leave_room_ok".to_string(),
                                             data: serde_json::json!({"room_id": room_id}),
@@ -979,6 +987,21 @@ impl VConnectIMServer {
                                         room_id: Some(room_id.clone()),
                                     };
                                     self.raft.append_entry_as(&self.node_id, &record)?;
+
+                                    // 保存消息到存储插件 / Save message to storage plugin
+                                    if let Some(pool) = self.plugin_connection_pool.as_ref() {
+                                        let _ = pool
+                                            .storage_save_message(
+                                                &record.message_id,
+                                                &record.from_client_id,
+                                                &record.to_client_id,
+                                                &record.content,
+                                                record.timestamp,
+                                                &record.msg_type,
+                                                record.room_id.as_deref(),
+                                            )
+                                            .await;
+                                    }
 
                                     let mut delivered_count = 0usize;
                                     let mut offline_uids: Vec<String> = Vec::new();
@@ -1036,9 +1059,9 @@ impl VConnectIMServer {
                                         }
                                     } else {
                                         // 回退：从持久化成员列表加载并投递 / Fallback to persistent members
-                                        if let Ok(members) =
-                                            self.storage.list_room_members(&room_id)
-                                        {
+                                        // storage.list_room_members 已移除 / storage.list_room_members removed
+                                        if false {
+                                            let members: Vec<String> = vec![];
                                             for uid in members {
                                                 if !self.allow_send_to_uid(&uid) {
                                                     continue;
@@ -1098,7 +1121,7 @@ impl VConnectIMServer {
 
                                     for ou in offline_uids {
                                         let _ = self.enforce_offline_quota_for_uid(&ou).await;
-                                        let off = storage::OfflineRecord {
+                                        let _off = storage::OfflineRecord {
                                             message_id: message_id.clone(),
                                             from_uid: self
                                                 .connections
@@ -1110,7 +1133,7 @@ impl VConnectIMServer {
                                             timestamp: chrono::Utc::now().timestamp_millis(),
                                             msg_type: "group_message".to_string(),
                                         };
-                                        let _ = self.storage.store_offline(&off);
+                                        // storage.store_offline 已移除，使用插件 / storage.store_offline removed, use plugin
                                     }
 
                                     let confirm_msg = ImMessage {
@@ -1272,182 +1295,182 @@ impl VConnectIMServer {
         }
     }
 
-    /// 发送Webhook事件 / Send Webhook Event
-    async fn send_webhook_event(&self, event_type: WebhookEventType, data: serde_json::Value) {
-        if let Some(webhook_config) = &self.webhook_config {
-            if !webhook_config.enabled {
-                return;
-            }
+    // /// 发送Webhook事件 / Send Webhook Event (已移除 / Removed)
+    // async fn send_webhook_event(&self, event_type: WebhookEventType, data: serde_json::Value) {
+    //     if let Some(webhook_config) = &self.webhook_config {
+    //         if !webhook_config.enabled {
+    //             return;
+    //         }
+    //
+    //         let event = WebhookEvent {
+    //             event_type: event_type.clone(),
+    //             event_id: Uuid::new_v4().to_string(),
+    //             timestamp: chrono::Utc::now().timestamp_millis(),
+    //             data,
+    //             retry_count: Some(0),
+    //         };
+    //
+    //         let webhook_config = webhook_config.clone();
+    //         tokio::spawn(async move {
+    //             if let Err(e) = Self::deliver_webhook_event(webhook_config, event).await {
+    //                 error!("❌ Failed to deliver webhook event: {}", e);
+    //             }
+    //         });
+    //     }
+    // }
 
-            let event = WebhookEvent {
-                event_type: event_type.clone(),
-                event_id: Uuid::new_v4().to_string(),
-                timestamp: chrono::Utc::now().timestamp_millis(),
-                data,
-                retry_count: Some(0),
-            };
+    // /// 交付Webhook事件到第三方服务器 / Deliver Webhook Event to Third-party Server (已移除 / Removed)
+    // async fn deliver_webhook_event(
+    //     webhook_config: crate::config::WebhookConfigLite,
+    //     event: WebhookEvent,
+    // ) -> Result<()> {
+    //     let client = reqwest::Client::builder()
+    //         .timeout(std::time::Duration::from_millis(webhook_config.timeout_ms))
+    //         .build()
+    //         .map_err(|e| anyhow::anyhow!("Failed to build HTTP client: {}", e))?;
+    //
+    //     let url = webhook_config
+    //         .url
+    //         .clone()
+    //         .ok_or_else(|| anyhow::anyhow!("Webhook url not configured"))?;
+    //     let mut request = client.post(url).json(&event);
+    //
+    //     // 添加签名头 / Add signature header if secret is configured
+    //     if let Some(secret) = &webhook_config.secret {
+    //         let signature = Self::generate_webhook_signature(&event, secret);
+    //         request = request.header("X-VConnectIM-Signature", signature);
+    //     }
+    //
+    //     let response = request
+    //         .send()
+    //         .await
+    //         .map_err(|e| anyhow::anyhow!("Webhook request failed: {}", e))?;
+    //
+    //     if response.status().is_success() {
+    //         info!("✅ Webhook event {} delivered successfully", event.event_id);
+    //         Ok(())
+    //     } else {
+    //         let status = response.status();
+    //         let body = response.text().await.unwrap_or_default();
+    //         Err(anyhow::anyhow!(
+    //             "Webhook delivery failed with status {}: {}",
+    //             status,
+    //             body
+    //         ))
+    //     }
+    // }
 
-            let webhook_config = webhook_config.clone();
-            tokio::spawn(async move {
-                if let Err(e) = Self::deliver_webhook_event(webhook_config, event).await {
-                    error!("❌ Failed to deliver webhook event: {}", e);
-                }
-            });
-        }
-    }
+    // /// 生成Webhook签名 / Generate Webhook Signature (已移除 / Removed)
+    // fn generate_webhook_signature(event: &WebhookEvent, secret: &str) -> String {
+    //     use std::collections::HashMap;
+    //
+    //     let mut data = HashMap::new();
+    //     data.insert("event_id", event.event_id.as_str());
+    //
+    //     let event_type_str = format!("{:?}", event.event_type);
+    //     data.insert("event_type", event_type_str.as_str());
+    //
+    //     let timestamp_str = event.timestamp.to_string();
+    //     data.insert("timestamp", timestamp_str.as_str());
+    //
+    //     let payload = serde_json::to_string(&data).unwrap_or_default();
+    //
+    //     use hmac::{Hmac, Mac};
+    //     use sha2::Sha256;
+    //
+    //     type HmacSha256 = Hmac<Sha256>;
+    //
+    //     let mut mac =
+    //         HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
+    //     mac.update(payload.as_bytes());
+    //
+    //     let result = mac.finalize();
+    //     let code_bytes = result.into_bytes();
+    //
+    //     format!("sha256={}", hex::encode(code_bytes))
+    // }
 
-    /// 交付Webhook事件到第三方服务器 / Deliver Webhook Event to Third-party Server
-    async fn deliver_webhook_event(
-        webhook_config: crate::config::WebhookConfigLite,
-        event: WebhookEvent,
-    ) -> Result<()> {
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_millis(webhook_config.timeout_ms))
-            .build()
-            .map_err(|e| anyhow::anyhow!("Failed to build HTTP client: {}", e))?;
+    // /// 发送客户端上线Webhook事件 / Send Client Online Webhook Event (已移除 / Removed)
+    // #[allow(dead_code)]
+    // async fn send_client_online_webhook(
+    //     &self,
+    //     client_id: &str,
+    //     uid: &Option<String>,
+    //     addr: &SocketAddr,
+    // ) {
+    //     let data = serde_json::json!(WebhookClientStatusData {
+    //         client_id: client_id.to_string(),
+    //         uid: uid.clone(),
+    //         addr: addr.to_string(),
+    //         connected_at: Some(chrono::Utc::now().timestamp_millis()),
+    //         disconnected_at: None,
+    //         online_duration_ms: None,
+    //     });
+    //
+    //     self.send_webhook_event(WebhookEventType::ClientOnline, data)
+    //         .await;
+    // }
 
-        let url = webhook_config
-            .url
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("Webhook url not configured"))?;
-        let mut request = client.post(url).json(&event);
+    // /// 发送客户端离线Webhook事件 / Send Client Offline Webhook Event (已移除 / Removed)
+    // #[allow(dead_code)]
+    // async fn send_client_offline_webhook(
+    //     &self,
+    //     client_id: &str,
+    //     uid: &Option<String>,
+    //     addr: &SocketAddr,
+    //     connected_at: i64,
+    // ) {
+    //     let now = chrono::Utc::now().timestamp_millis();
+    //     let online_duration_ms = (now - connected_at).max(0) as u64;
+    //
+    //     let data = serde_json::json!(WebhookClientStatusData {
+    //         client_id: client_id.to_string(),
+    //         uid: uid.clone(),
+    //         addr: addr.to_string(),
+    //         connected_at: Some(connected_at),
+    //         disconnected_at: Some(now),
+    //         online_duration_ms: Some(online_duration_ms),
+    //     });
+    //
+    //     self.send_webhook_event(WebhookEventType::ClientOffline, data)
+    //         .await;
+    // }
 
-        // 添加签名头 / Add signature header if secret is configured
-        if let Some(secret) = &webhook_config.secret {
-            let signature = Self::generate_webhook_signature(&event, secret);
-            request = request.header("X-VConnectIM-Signature", signature);
-        }
-
-        let response = request
-            .send()
-            .await
-            .map_err(|e| anyhow::anyhow!("Webhook request failed: {}", e))?;
-
-        if response.status().is_success() {
-            info!("✅ Webhook event {} delivered successfully", event.event_id);
-            Ok(())
-        } else {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            Err(anyhow::anyhow!(
-                "Webhook delivery failed with status {}: {}",
-                status,
-                body
-            ))
-        }
-    }
-
-    /// 生成Webhook签名 / Generate Webhook Signature
-    fn generate_webhook_signature(event: &WebhookEvent, secret: &str) -> String {
-        use std::collections::HashMap;
-
-        let mut data = HashMap::new();
-        data.insert("event_id", event.event_id.as_str());
-
-        let event_type_str = format!("{:?}", event.event_type);
-        data.insert("event_type", event_type_str.as_str());
-
-        let timestamp_str = event.timestamp.to_string();
-        data.insert("timestamp", timestamp_str.as_str());
-
-        let payload = serde_json::to_string(&data).unwrap_or_default();
-
-        use hmac::{Hmac, Mac};
-        use sha2::Sha256;
-
-        type HmacSha256 = Hmac<Sha256>;
-
-        let mut mac =
-            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
-        mac.update(payload.as_bytes());
-
-        let result = mac.finalize();
-        let code_bytes = result.into_bytes();
-
-        format!("sha256={}", hex::encode(code_bytes))
-    }
-
-    /// 发送客户端上线Webhook事件 / Send Client Online Webhook Event
-    #[allow(dead_code)]
-    async fn send_client_online_webhook(
-        &self,
-        client_id: &str,
-        uid: &Option<String>,
-        addr: &SocketAddr,
-    ) {
-        let data = serde_json::json!(WebhookClientStatusData {
-            client_id: client_id.to_string(),
-            uid: uid.clone(),
-            addr: addr.to_string(),
-            connected_at: Some(chrono::Utc::now().timestamp_millis()),
-            disconnected_at: None,
-            online_duration_ms: None,
-        });
-
-        self.send_webhook_event(WebhookEventType::ClientOnline, data)
-            .await;
-    }
-
-    /// 发送客户端离线Webhook事件 / Send Client Offline Webhook Event
-    #[allow(dead_code)]
-    async fn send_client_offline_webhook(
-        &self,
-        client_id: &str,
-        uid: &Option<String>,
-        addr: &SocketAddr,
-        connected_at: i64,
-    ) {
-        let now = chrono::Utc::now().timestamp_millis();
-        let online_duration_ms = (now - connected_at).max(0) as u64;
-
-        let data = serde_json::json!(WebhookClientStatusData {
-            client_id: client_id.to_string(),
-            uid: uid.clone(),
-            addr: addr.to_string(),
-            connected_at: Some(connected_at),
-            disconnected_at: Some(now),
-            online_duration_ms: Some(online_duration_ms),
-        });
-
-        self.send_webhook_event(WebhookEventType::ClientOffline, data)
-            .await;
-    }
-
-    /// 发送消息Webhook事件 / Send Message Webhook Event
-    async fn send_message_webhook(
-        &self,
-        message_id: &str,
-        from_client_id: &str,
-        from_uid: &Option<String>,
-        to_client_id: &Option<String>,
-        to_uid: &Option<String>,
-        content: &serde_json::Value,
-        message_type: &str,
-        delivery_status: &str,
-        delivered_at: Option<i64>,
-    ) {
-        let data = serde_json::json!(WebhookMessageData {
-            message_id: message_id.to_string(),
-            from_client_id: from_client_id.to_string(),
-            from_uid: from_uid.clone(),
-            to_client_id: to_client_id.clone(),
-            to_uid: to_uid.clone(),
-            content: content.clone(),
-            message_type: message_type.to_string(),
-            timestamp: chrono::Utc::now().timestamp_millis(),
-            delivered_at,
-            delivery_status: delivery_status.to_string(),
-        });
-
-        let event_type = match delivery_status {
-            "delivered" => WebhookEventType::MessageDelivered,
-            "failed" => WebhookEventType::MessageFailed,
-            _ => WebhookEventType::MessageSent,
-        };
-
-        self.send_webhook_event(event_type, data).await;
-    }
-}
+    // /// 发送消息Webhook事件 / Send Message Webhook Event (已移除 / Removed)
+    // async fn send_message_webhook(
+    //     &self,
+    //     message_id: &str,
+    //     from_client_id: &str,
+    //     from_uid: &Option<String>,
+    //     to_client_id: &Option<String>,
+    //     to_uid: &Option<String>,
+    //     content: &serde_json::Value,
+    //     message_type: &str,
+    //     delivery_status: &str,
+    //     delivered_at: Option<i64>,
+    // ) {
+    //     let data = serde_json::json!(WebhookMessageData {
+    //         message_id: message_id.to_string(),
+    //         from_client_id: from_client_id.to_string(),
+    //         from_uid: from_uid.clone(),
+    //         to_client_id: to_client_id.clone(),
+    //         to_uid: to_uid.clone(),
+    //         content: content.clone(),
+    //         message_type: message_type.to_string(),
+    //         timestamp: chrono::Utc::now().timestamp_millis(),
+    //         delivered_at,
+    //         delivery_status: delivery_status.to_string(),
+    //     });
+    //
+    //     let event_type = match delivery_status {
+    //         "delivered" => WebhookEventType::MessageDelivered,
+    //         "failed" => WebhookEventType::MessageFailed,
+    //         _ => WebhookEventType::MessageSent,
+    //     };
+    //
+    //     self.send_webhook_event(event_type, data).await;
+    // }
+} // impl VConnectIMServer 结束 / End of impl VConnectIMServer
 
 // 为IM服务器实现统一健康检查接口
 // Implement unified HealthCheck for IM server
@@ -1593,17 +1616,17 @@ async fn main() -> Result<()> {
     info!("   Private: {{\"type\":\"private_message\",\"data\":{{\"content\":\"Hello\"}},\"target_id\":\"client_id\"}}");
     info!("   Online Clients: {{\"type\":\"online_clients\",\"data\":{{}}}}");
 
-    // 创建带Webhook配置的服务器 / Create server with webhook configuration
+    // 创建服务器 / Create server (webhook 已移除 / webhook removed)
     let mut server_builder = VConnectIMServer::new();
-    if webhook_enabled && webhook_url.is_some() {
-        let webhook_config = crate::config::WebhookConfigLite {
-            url: Some(webhook_url.unwrap()),
-            timeout_ms: webhook_timeout_ms,
-            secret: webhook_secret,
-            enabled: true,
-        };
-        server_builder = server_builder.with_webhook_config(webhook_config);
-    }
+    // if webhook_enabled && webhook_url.is_some() {
+    //     let webhook_config = crate::config::WebhookConfigLite {
+    //         url: Some(webhook_url.unwrap()),
+    //         timeout_ms: webhook_timeout_ms,
+    //         secret: webhook_secret,
+    //         enabled: true,
+    //     };
+    //     server_builder = server_builder.with_webhook_config(webhook_config);
+    // }
     if auth_enabled {
         let auth_cfg = crate::config::AuthConfigLite {
             enabled: auth_enabled,

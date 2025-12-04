@@ -1,8 +1,8 @@
-use actix_web::{web, Responder};
+use crate::VConnectIMServer;
 use actix_web::http::StatusCode;
+use actix_web::{web, Responder};
 use std::sync::Arc;
 use v::response::respond_any;
-use crate::VConnectIMServer;
 
 #[derive(serde::Deserialize)]
 pub struct UnreadQuery {
@@ -22,12 +22,15 @@ pub fn register(cfg: &mut actix_web::web::ServiceConfig, path: &str) {
 }
 
 pub async fn room_unread_handle(
-    server: web::Data<Arc<VConnectIMServer>>,
-    query: web::Query<UnreadQuery>,
+    _server: web::Data<Arc<VConnectIMServer>>,
+    _query: web::Query<UnreadQuery>,
 ) -> impl Responder {
-    match server.storage.offline_count_by_room(&query.uid, &query.room_id) {
-        Ok(count) => respond_any(StatusCode::OK, UnreadResponse { uid: query.uid.clone(), room_id: query.room_id.clone(), count }),
-        Err(e) => respond_any(StatusCode::BAD_REQUEST, serde_json::json!({"error": format!("{}", e)})),
-    }
+    // 房间未读数功能已迁移到插件 / Room unread count feature migrated to plugin
+    respond_any(
+        StatusCode::SERVICE_UNAVAILABLE,
+        serde_json::json!({
+            "error": "Feature migrated to plugin",
+            "message": "房间未读数需要存储插件 / Room unread count requires storage plugin"
+        }),
+    )
 }
-
