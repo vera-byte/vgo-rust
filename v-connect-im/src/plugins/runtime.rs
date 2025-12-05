@@ -1078,6 +1078,293 @@ impl PluginConnectionPool {
         }
     }
 
+    /// 删除离线消息 / Delete offline messages
+    pub async fn storage_delete_offline(
+        &self,
+        to_uid: &str,
+        message_ids: &[String],
+    ) -> Result<usize> {
+        let payload = serde_json::json!({
+            "to_uid": to_uid,
+            "message_ids": message_ids
+        });
+
+        match self
+            .send_storage_event("storage.offline.delete", &payload)
+            .await
+        {
+            Ok(Some(response)) => {
+                if let Some(deleted) = response.get("deleted").and_then(|v| v.as_u64()) {
+                    Ok(deleted as usize)
+                } else {
+                    Ok(0)
+                }
+            }
+            Ok(None) => Ok(0),
+            Err(e) => Err(e),
+        }
+    }
+
+    // ==================== 插件间通信功能 / Inter-Plugin Communication ====================
+
+    /// 插件 A 直接调用插件 B / Plugin A directly calls Plugin B
+    ///
+    /// # 参数 / Parameters
+    /// - `from_plugin`: 发送方插件名称 / Sender plugin name
+    /// - `to_plugin`: 接收方插件名称 / Receiver plugin name
+    /// - `method`: 调用的方法名 / Method name to call
+    /// - `params`: 方法参数 / Method parameters
+    ///
+    /// # 返回值 / Returns
+    /// - `Ok(Some(response))`: 目标插件响应 / Target plugin response
+    /// - `Ok(None)`: 目标插件未连接 / Target plugin not connected
+    /// - `Err(e)`: 调用失败 / Call failed
+    ///
+    /// # 示例 / Example
+    /// ```rust
+    /// let response = pool.plugin_call(
+    ///     "plugin_a",
+    ///     "plugin_b",
+    ///     "process_data",
+    ///     &json!({"data": "hello"})
+    /// ).await?;
+    /// ```
+    pub async fn plugin_call(
+        &self,
+        from_plugin: &str,
+        to_plugin: &str,
+        method: &str,
+        params: &Value,
+    ) -> Result<Option<Value>> {
+        // 验证发送方插件存在 / Verify sender exists
+        if !self.connections.contains_key(from_plugin) {
+            return Err(anyhow!("Sender plugin not connected: {}", from_plugin));
+        }
+
+        info!(
+            "🔗 插件调用 / Plugin call: {} -> {} (method: {})",
+            from_plugin, to_plugin, method
+        );
+
+        // 构建插件间调用事件 / Build inter-plugin call event
+        let event_type = format!("plugin.call.{}", method);
+        let enriched_payload = serde_json::json!({
+            "from_plugin": from_plugin,
+            "method": method,
+            "params": params
+        });
+
+        // 向目标插件发送事件 / Send event to target plugin
+        match self
+            .send_event(to_plugin, &event_type, &enriched_payload)
+            .await
+        {
+            Ok(Some(response)) => {
+                info!(
+                    "✅ 插件调用成功 / Plugin call succeeded: {} -> {}",
+                    from_plugin, to_plugin
+                );
+                Ok(Some(response))
+            }
+            Ok(None) => {
+                warn!(
+                    "⚠️  目标插件未连接 / Target plugin not connected: {}",
+                    to_plugin
+                );
+                Ok(None)
+            }
+            Err(e) => {
+                error!(
+                    "❌ 插件调用失败 / Plugin call failed: {} -> {}: {}",
+                    from_plugin, to_plugin, e
+                );
+                Err(e)
+            }
+        }
+    }
+
+    /// 插件间点对点消息传递 / Point-to-point message between plugins
+    ///
+    /// # 参数 / Parameters
+    /// - `from_plugin`: 发送方插件名称 / Sender plugin name
+    /// - `to_plugin`: 接收方插件名称 / Receiver plugin name
+    /// - `message`: 消息内容 / Message content
+    ///
+    /// # 返回值 / Returns
+    /// - `Ok(true)`: 消息已送达 / Message delivered
+    /// - `Ok(false)`: 目标插件未连接 / Target plugin not connected
+    /// - `Err(e)`: 发送失败 / Send failed
+    ///
+    /// # 示例 / Example
+    /// ```rust
+    /// pool.plugin_send_message(
+    ///     "plugin_a",
+    ///     "plugin_b",
+    ///     &json!({"type": "notification", "content": "hello"})
+    /// ).await?;
+    /// ```
+    pub async fn plugin_send_message(
+        &self,
+        from_plugin: &str,
+        to_plugin: &str,
+        message: &Value,
+    ) -> Result<bool> {
+        // 验证发送方插件存在 / Verify sender exists
+        if !self.connections.contains_key(from_plugin) {
+            return Err(anyhow!("Sender plugin not connected: {}", from_plugin));
+        }
+
+        info!(
+            "📨 插件消息 / Plugin message: {} -> {}",
+            from_plugin, to_plugin
+        );
+
+        // 构建插件间消息事件 / Build inter-plugin message event
+        let enriched_message = serde_json::json!({
+            "from_plugin": from_plugin,
+            "timestamp": chrono::Utc::now().timestamp_millis(),
+            "message": message
+        });
+
+        // 发送到目标插件 / Send to target plugin
+        match self
+            .send_event(to_plugin, "plugin.message", &enriched_message)
+            .await
+        {
+            Ok(Some(_)) => {
+                info!(
+                    "✅ 插件消息已送达 / Plugin message delivered: {} -> {}",
+                    from_plugin, to_plugin
+                );
+                Ok(true)
+            }
+            Ok(None) => {
+                warn!(
+                    "⚠️  目标插件未连接 / Target plugin not connected: {}",
+                    to_plugin
+                );
+                Ok(false)
+            }
+            Err(e) => {
+                error!(
+                    "❌ 插件消息发送失败 / Plugin message send failed: {} -> {}: {}",
+                    from_plugin, to_plugin, e
+                );
+                Err(e)
+            }
+        }
+    }
+
+    /// 插件广播消息到其他插件 / Plugin broadcasts message to other plugins
+    ///
+    /// # 参数 / Parameters
+    /// - `from_plugin`: 发送方插件名称 / Sender plugin name
+    /// - `message`: 广播消息内容 / Broadcast message content
+    /// - `filter_capabilities`: 可选的能力过滤器 / Optional capability filter
+    ///
+    /// # 返回值 / Returns
+    /// - `Ok(responses)`: 所有接收插件的响应列表 / List of responses from all receivers
+    ///
+    /// # 示例 / Example
+    /// ```rust
+    /// // 广播给所有插件 / Broadcast to all plugins
+    /// let responses = pool.plugin_broadcast(
+    ///     "plugin_a",
+    ///     &json!({"event": "data_updated"}),
+    ///     None
+    /// ).await?;
+    ///
+    /// // 只广播给支持特定能力的插件 / Broadcast only to plugins with specific capabilities
+    /// let responses = pool.plugin_broadcast(
+    ///     "plugin_a",
+    ///     &json!({"event": "data_updated"}),
+    ///     Some(vec!["storage".to_string()])
+    /// ).await?;
+    /// ```
+    pub async fn plugin_broadcast(
+        &self,
+        from_plugin: &str,
+        message: &Value,
+        filter_capabilities: Option<Vec<String>>,
+    ) -> Result<Vec<(String, Value)>> {
+        // 验证发送方插件存在 / Verify sender exists
+        if !self.connections.contains_key(from_plugin) {
+            return Err(anyhow!("Sender plugin not connected: {}", from_plugin));
+        }
+
+        info!(
+            "📢 插件广播 / Plugin broadcast from: {} (filter: {:?})",
+            from_plugin, filter_capabilities
+        );
+
+        let mut responses = Vec::new();
+
+        // 构建广播消息 / Build broadcast message
+        let enriched_message = serde_json::json!({
+            "from_plugin": from_plugin,
+            "timestamp": chrono::Utc::now().timestamp_millis(),
+            "message": message
+        });
+
+        // 遍历所有已连接的插件 / Iterate all connected plugins
+        for entry in self.connections.iter() {
+            let plugin_name = entry.key();
+
+            // 跳过发送方自己 / Skip sender itself
+            if plugin_name == from_plugin {
+                continue;
+            }
+
+            // 能力过滤 / Filter by capabilities
+            if let Some(caps) = &filter_capabilities {
+                if let Some(runtime) = self.manager.plugins.get(plugin_name.as_str()) {
+                    let plugin_caps = runtime.capabilities();
+                    if !caps.iter().any(|c| plugin_caps.contains(c)) {
+                        debug!(
+                            "⏭️  跳过插件 {} (不满足能力要求) / Skip plugin {} (capability mismatch)",
+                            plugin_name, plugin_name
+                        );
+                        continue;
+                    }
+                }
+            }
+
+            // 发送广播事件 / Send broadcast event
+            match self
+                .send_event(plugin_name, "plugin.broadcast", &enriched_message)
+                .await
+            {
+                Ok(Some(response)) => {
+                    info!(
+                        "✅ 插件 {} 收到广播 / Plugin {} received broadcast",
+                        plugin_name, plugin_name
+                    );
+                    responses.push((plugin_name.clone(), response));
+                }
+                Ok(None) => {
+                    debug!(
+                        "⚠️  插件 {} 未连接 / Plugin {} not connected",
+                        plugin_name, plugin_name
+                    );
+                }
+                Err(e) => {
+                    warn!(
+                        "⚠️  向插件 {} 广播失败 / Broadcast to plugin {} failed: {}",
+                        plugin_name, plugin_name, e
+                    );
+                }
+            }
+        }
+
+        info!(
+            "📊 广播完成 / Broadcast completed: {} 个插件响应 / {} plugins responded",
+            responses.len(),
+            responses.len()
+        );
+
+        Ok(responses)
+    }
+
     /// 添加房间成员 / Add room member
     pub async fn storage_add_room_member(&self, room_id: &str, uid: &str) -> Result<bool> {
         let payload = serde_json::json!({

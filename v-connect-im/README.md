@@ -1,10 +1,3 @@
-- **插件配置示例**
- ```toml
- [plugins]
- trace_enabled = 1
- trace_log_payload = 0
- sensitive_words = ["违禁词", "badword"]
- ```
 # v-connect-im 即时通讯服务器
 
 v-connect-im 是一个高性能的即时通讯服务器，采用 Rust 语言开发，支持 WebSocket 和 HTTP 双协议，提供完整的实时消息传输解决方案。
@@ -31,14 +24,12 @@ v-connect-im 是一个高性能的即时通讯服务器，采用 Rust 语言开�
 ### 插件系统
 - **统一插件注册中心**：`PluginRegistry` 负责调度上行/下行钩子，并提供 `on_startup / on_config_update / on_shutdown` 等生命周期回调，插件可以安全感知配置变化。  
   `PluginRegistry` orchestrates inbound/outbound hooks with lifecycle callbacks so each plugin can react to startup, config updates, and graceful shutdowns.
-- **授权与敏感词插件**：内置 `DefaultAuthPlugin` 与 `SensitiveWordPlugin`，提供基础鉴权与敏感词替换能力，后者可通过 `plugins.sensitive_words` 配置实时热更。  
-  Built-in `DefaultAuthPlugin` and `SensitiveWordPlugin` cover authentication and sensitive-word replacement with dynamic configuration support.
-- **Trace 插件**：通过 `plugins.trace_enabled` 与 `plugins.trace_log_payload` 开关调试日志，快速洞察消息收发链路。  
-  The Trace plugin helps troubleshoot message flows with optional payload logging.
-- **测试插件**：`TestPluginManager` 注入的测试插件可模拟阻塞/统计等行为，方便集成测试或故障注入。  
-  The bundled test plugin lets you simulate blocking flows and collect stats for integration testing.
-- **插件安装与运行**：保留 `.wkp` 本地插件运行时，支持从 URL 自动下载并解压 .tar.gz 包、`${os}/${arch}` 变量替换、Unix Socket 通信以及自动启动/停止流程。  
-  Local `.wkp` plugins are still supported through the runtime manager, including auto-download, `${os}/${arch}` templating, Unix-socket IPC, and lifecycle supervision—without额外的 HTTP 插件 API 依赖。
+- **插件安装与运行**：支持从 URL 自动下载并解压 .tar.gz 包、`${os}/${arch}` 变量替换、Unix Socket 通信以及自动启动/停止流程。  
+  Local plugins are supported through the runtime manager, including auto-download, `${os}/${arch}` templating, Unix-socket IPC, and lifecycle supervision.
+- **开发模式**：支持直接从源码运行插件（`dev_plugins` 配置），方便插件开发和调试。  
+  Development mode allows running plugins directly from source code for rapid iteration.
+- **插件连接池**：统一管理多个插件实例，提供存储、消息处理等标准化接口。  
+  Plugin connection pool manages multiple plugin instances with standardized interfaces for storage and message processing.
 
 ### Webhook 事件通知
 - **客户端上线/离线事件**：实时通知第三方系统

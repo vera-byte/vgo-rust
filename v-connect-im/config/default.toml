@@ -36,10 +36,6 @@ path = "./data/v-connect-im-node-local"
 peers = ""
 
 [plugins]
-trace_enabled = 0
-trace_log_payload = 0
-sensitive_words = []
-
 # 插件安装配置 / Plugin installation configuration
 # 支持从 URL 自动下载并安装插件 / Support automatic download and install plugins from URL
 # 变量支持: ${os} (操作系统: darwin/linux/windows), ${arch} (架构: amd64/arm64)
