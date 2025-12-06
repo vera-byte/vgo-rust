@@ -627,6 +627,7 @@ impl UnixSocketServer {
                         if let Some(runtime) = manager.plugins.get(name) {
                             runtime.set_capabilities(capabilities.clone());
                             runtime.set_priority(priority);
+                            runtime.set_status(PluginStatus::Running); // 更新状态为 Running / Update status to Running
                             found = true;
                             info!("✅ 插件信息已更新（完整名称匹配）/ Plugin info updated (full name match): {}", name);
                         } else {
@@ -640,6 +641,7 @@ impl UnixSocketServer {
                             if let Some(runtime) = manager.plugins.get(short_name) {
                                 runtime.set_capabilities(capabilities.clone());
                                 runtime.set_priority(priority);
+                                runtime.set_status(PluginStatus::Running); // 更新状态为 Running / Update status to Running
                                 found = true;
                                 info!("✅ 插件信息已更新（简短名称匹配）/ Plugin info updated (short name match): {} -> {}", name, short_name);
                             }
@@ -830,10 +832,26 @@ impl PluginConnectionPool {
                     warn!("⚠️  插件 {} 未连接 / Plugin {} not connected", name, name);
                 }
                 Err(e) => {
-                    error!(
-                        "❌ 向插件 {} 发送事件失败 / Error sending event to plugin {}: {}",
-                        name, name, e
-                    );
+                    // 检查是否为连接断开错误 / Check if it's a connection broken error
+                    let error_msg = e.to_string();
+                    if error_msg.contains("Broken pipe") || error_msg.contains("Connection reset") {
+                        warn!(
+                            "⚠️  插件 {} 连接已断开（插件可能已退出）/ Plugin {} connection broken (plugin may have exited)",
+                            name, name
+                        );
+                        // 从连接池移除该插件 / Remove plugin from connection pool
+                        self.unregister(&name);
+                        // 更新插件状态 / Update plugin status
+                        if let Some(runtime) = self.manager.plugins.get(&name) {
+                            runtime.set_status(PluginStatus::Stopped);
+                        }
+                    } else {
+                        // 其他类型的错误记录为错误日志 / Log other types of errors as error
+                        error!(
+                            "❌ 向插件 {} 发送事件失败 / Error sending event to plugin {}: {}",
+                            name, name, e
+                        );
+                    }
                 }
             }
         }
@@ -908,11 +926,31 @@ impl PluginConnectionPool {
                         continue; // 继续查找其他可能的存储插件 / Continue to find other possible storage plugins
                     }
                     Err(e) => {
-                        error!(
-                            "❌ 存储插件 {} 调用失败 / Storage plugin {} call failed: {}",
-                            plugin_name, plugin_name, e
-                        );
-                        return Err(e);
+                        // 检查是否为连接断开错误 / Check if it's a connection broken error
+                        let error_msg = e.to_string();
+                        if error_msg.contains("Broken pipe")
+                            || error_msg.contains("Connection reset")
+                        {
+                            warn!(
+                                "⚠️  存储插件 {} 连接已断开（插件可能已退出）/ Storage plugin {} connection broken (plugin may have exited)",
+                                plugin_name, plugin_name
+                            );
+                            // 从连接池移除该插件 / Remove plugin from connection pool
+                            self.unregister(plugin_name);
+                            // 更新插件状态 / Update plugin status
+                            if let Some(runtime) = self.manager.plugins.get(plugin_name) {
+                                runtime.set_status(PluginStatus::Stopped);
+                            }
+                            found_installed_but_not_ready = true;
+                            continue; // 继续查找其他可能的存储插件 / Continue to find other possible storage plugins
+                        } else {
+                            // 其他类型的错误直接返回 / Return other types of errors directly
+                            error!(
+                                "❌ 存储插件 {} 调用失败 / Storage plugin {} call failed: {}",
+                                plugin_name, plugin_name, e
+                            );
+                            return Err(e);
+                        }
                     }
                 }
             }
