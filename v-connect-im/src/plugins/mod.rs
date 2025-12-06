@@ -1,7 +1,6 @@
 //! 插件系统入口 / Plugin system entry
 
 pub mod event_bus;
-pub mod event_handler;
 pub mod installer;
 pub mod runtime;
 pub mod v_adapters;

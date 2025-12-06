@@ -862,13 +862,32 @@ impl PluginConnectionPool {
         debug!("📦 发送存储事件 / Sending storage event: {}", event_type);
 
         // 查找存储插件 / Find storage plugin
+        // 记录是否找到已安装但未就绪的存储插件 / Track if found installed but not ready storage plugin
+        let mut found_installed_but_not_ready = false;
+
         for entry in self.manager.plugins.iter() {
             let runtime = entry.value();
+            let plugin_name = entry.key();
+            let status = runtime.status();
             let capabilities = runtime.capabilities();
 
-            // 检查是否支持 storage 能力 / Check if supports storage capability
+            // 通过插件名称判断是否为存储插件 / Judge if it's a storage plugin by name
+            let is_storage_plugin = plugin_name.contains("storage");
+
+            // 如果是存储插件但状态不是 Running，说明已安装但未启动
+            // If it's a storage plugin but status is not Running, it means installed but not started
+            if is_storage_plugin && !matches!(status, PluginStatus::Running) {
+                found_installed_but_not_ready = true;
+                warn!(
+                    "⚠️  存储插件 {} 已安装但未启动（状态: {:?}）/ Storage plugin {} is installed but not started (status: {:?})",
+                    plugin_name, status, plugin_name, status
+                );
+                continue; // 继续查找其他可能的存储插件 / Continue to find other possible storage plugins
+            }
+
+            // 检查是否支持 storage 能力（插件已启动并完成握手）
+            // Check if supports storage capability (plugin started and handshaked)
             if capabilities.iter().any(|cap| cap == "storage") {
-                let plugin_name = entry.key();
                 debug!("🎯 找到存储插件 / Found storage plugin: {}", plugin_name);
 
                 // 发送事件到存储插件 / Send event to storage plugin
@@ -881,18 +900,31 @@ impl PluginConnectionPool {
                         return Ok(Some(response));
                     }
                     Ok(None) => {
-                        warn!("⚠️  存储插件未连接 / Storage plugin not connected");
-                        return Ok(None);
+                        warn!(
+                            "⚠️  存储插件 {} 未连接到连接池 / Storage plugin {} not connected to connection pool",
+                            plugin_name, plugin_name
+                        );
+                        found_installed_but_not_ready = true;
+                        continue; // 继续查找其他可能的存储插件 / Continue to find other possible storage plugins
                     }
                     Err(e) => {
-                        error!("❌ 存储插件调用失败 / Storage plugin call failed: {}", e);
+                        error!(
+                            "❌ 存储插件 {} 调用失败 / Storage plugin {} call failed: {}",
+                            plugin_name, plugin_name, e
+                        );
                         return Err(e);
                     }
                 }
             }
         }
 
-        warn!("⚠️  未找到存储插件 / Storage plugin not found");
+        // 根据情况给出不同的警告信息 / Give different warning messages based on the situation
+        if found_installed_but_not_ready {
+            warn!("⚠️  存储插件已安装但未就绪（未启动或未连接）/ Storage plugin installed but not ready (not started or not connected)");
+        } else {
+            warn!("⚠️  未找到存储插件（未安装）/ Storage plugin not found (not installed)");
+        }
+
         Ok(None)
     }
 

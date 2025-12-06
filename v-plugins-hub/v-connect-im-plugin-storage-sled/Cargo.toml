@@ -1,29 +1,26 @@
 [package]
-name = "v-connect-im-plugin-storage"
+name = "v-connect-im-plugin-storage-sled"
 version = "0.1.0"
 edition = "2021"
+authors = ["VGO Team"]
+description = "High-performance storage plugin for v-connect-im based on Sled embedded database"
+license = "MIT"
 
+# 主程序入口 / Main program entry
 [[bin]]
-name = "v-connect-im-plugin-storage"
-path = "src/main.rs"
-
-[[bin]]
-name = "example"
+name = "v-connect-im-plugin-storage-sled"
 path = "src/main.rs"
 
 [dependencies]
-# v 公共库 / v common library
-v = { path = "/Users/mac/workspace/vgo-rust/v" }
+# 使用工作空间依赖 / Use workspace dependencies
+v = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 
-# 异步运行时 / Async runtime
-tokio = { version = "1.0", features = ["full"] }
+# 异步trait支持 / Async trait support
+async-trait = "0.1"
 
-# 错误处理 / Error handling
-anyhow = "1.0"
-
-# 序列化 / Serialization
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-
-# 存储后端 / Storage backend
-sled = "0.34"
+# 插件特定依赖 / Plugin-specific dependencies
+sled = "0.34"  # 存储后端 / Storage backend

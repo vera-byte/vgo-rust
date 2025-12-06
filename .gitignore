@@ -1,3 +1,48 @@
+# Rust编译输出 / Rust build output
 /target
-.vscode
-.trae
+**/target
+Cargo.lock
+
+# IDE配置 / IDE configuration
+.vscode/
+.idea/
+.trae/
+*.swp
+*.swo
+*~
+
+# 操作系统文件 / OS files
+.DS_Store
+Thumbs.db
+
+# 环境变量 / Environment variables
+.env
+.env.local
+.env.*.local
+
+# 日志文件 / Log files
+*.log
+logs/
+
+# 数据库文件 / Database files
+*.db
+*.sqlite
+data/
+!data/.gitkeep
+
+# 临时文件 / Temporary files
+tmp/
+temp/
+
+# 前端项目特定 / Frontend specific
+node_modules/
+dist/
+.nuxt/
+.output/
+
+# 插件编译产物 / Plugin build artifacts
+v-plugins-hub/*/target/
+
+# 测试覆盖率 / Test coverage
+coverage/
+*.profraw

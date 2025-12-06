@@ -1,3 +1,43 @@
+# Rust工作空间配置 / Rust workspace configuration
+# 包含所有Rust服务和插件项目 / Includes all Rust services and plugin projects
 [workspace]
-members = ["v", "v-auth-center", "examples", "v-admin", "v-connect-im"]
+members = [
+    # 公共库 / Common library
+    "v",
+    
+    # 核心服务 / Core services
+    "v-auth-center",      # 认证中心 / Authentication center
+    "v-admin",            # 管理后台后端 / Admin backend
+    "v-connect-im",       # 即时通讯服务 / IM service
+    
+    # 示例项目 / Examples
+    "examples",
+    
+    # 插件中心 / Plugin hub
+    "v-plugins-hub/v-connect-im-plugin-storage-sled",  # Sled存储插件 / Sled storage plugin
+    # 添加新插件时在此处添加 / Add new plugins here
+]
+
+# 排除前端项目 / Exclude frontend projects
+exclude = [
+    "v-admin-vue",        # Vue前端项目 / Vue frontend project
+]
+
 resolver = "2"
+
+# 工作空间共享依赖 / Workspace shared dependencies
+# 插件和服务可以通过 { workspace = true } 继承这些依赖
+# Plugins and services can inherit these dependencies via { workspace = true }
+[workspace.dependencies]
+# 公共库 / Common library
+v = { path = "v" }
+
+# 异步运行时 / Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# 错误处理 / Error handling
+anyhow = "1"
+
+# 序列化 / Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

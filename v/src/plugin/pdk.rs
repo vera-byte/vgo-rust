@@ -45,6 +45,9 @@ use tracing::info;
 
 use super::client::{PluginClient, PluginHandler};
 
+// 重新导出事件监听器 / Re-export event listeners
+pub use super::events::{AuthEventListener, StorageEventListener};
+
 /// 插件上下文 / Plugin context
 ///
 /// 类似 Go 的 pdk.Context，提供消息处理的上下文信息
@@ -103,7 +106,7 @@ impl Context {
         serde_json::from_value(self.payload.clone()).map_err(Into::into)
     }
 
-    /// 回复消息（类似 Go 的 c.Reply）/ Reply message (similar to Go's c.Reply)
+    /// 回复消息
     pub fn reply(&mut self, data: Value) -> Result<()> {
         self.response = Some(json!({
             "status": "ok",

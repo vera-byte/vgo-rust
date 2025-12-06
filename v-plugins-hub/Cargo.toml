@@ -1,0 +1,31 @@
+# 插件中心工作空间配置 / Plugin Hub Workspace Configuration
+# 管理所有v-connect-im插件项目 / Manages all v-connect-im plugin projects
+
+[workspace]
+members = [
+    "v-connect-im-plugin-storage-sled",  # Sled存储插件 / Sled storage plugin
+    # 未来可以添加更多插件 / More plugins can be added here
+    # "v-connect-im-plugin-xxx",
+]
+
+resolver = "2"
+
+# 工作空间级别的依赖配置 / Workspace-level dependency configuration
+[workspace.dependencies]
+# 公共库 / Common library
+v = { path = "../v" }
+
+# 异步运行时 / Async runtime
+tokio = { version = "1.0", features = ["full"] }
+
+# 错误处理 / Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# 序列化 / Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# 日志 / Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

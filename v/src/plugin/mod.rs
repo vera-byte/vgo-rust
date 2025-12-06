@@ -16,6 +16,7 @@ pub trait VPlugin {
 }
 
 pub mod client;
+pub mod events;
 pub mod installer;
 pub mod pdk;
 pub mod types;

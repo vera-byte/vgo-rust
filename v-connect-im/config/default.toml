@@ -70,7 +70,5 @@ debug = true
 # 格式 / Format: "plugin_name:cargo_project_path"
 # 示例 / Example: "example:/Users/mac/workspace/v-connect-im-plugin-example"
 dev_plugins = [
-    "example:/Users/mac/workspace/v-connect-im-plugin-example",
-    "storage-sled:/Users/mac/workspace/v-connect-im-plugin-storage",
-
+    "storage-sled:/Users/mac/workspace/vgo-rust/v-plugins-hub/v-connect-im-plugin-storage-sled",
 ]
