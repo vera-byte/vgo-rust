@@ -9,11 +9,13 @@ trigger: always_on
 
 
 项目工程结构介绍
+- docs 项目文档 使用mintlify
 - v 公共工具库(数据库, 缓存, 日志, 配置)(rust)
 - v-auth-center 认证中心服务(rust)
 - v-admin 管理后台后端(rust)
 - v-admin-vue 管理后台前端项目(基于Vue3 + ElementPlus + TypeScript)
 - v-connect-im 即时通讯服务(rust)
+- v-plugins-hub 插件中心(包含多个插件项目工程)
 
 项目特性规则
 - 所有服务应依赖于公共工具库(v)，并在`Cargo.toml`中声明依赖。

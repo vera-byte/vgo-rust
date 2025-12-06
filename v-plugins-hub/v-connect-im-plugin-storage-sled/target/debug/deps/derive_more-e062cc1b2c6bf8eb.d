@@ -1,0 +1,11 @@
+/Users/mac/workspace/v-connect-im-plugin-storage/target/debug/deps/derive_more-e062cc1b2c6bf8eb.d: /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive_more-2.1.0/src/lib.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive_more-2.1.0/src/as.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive_more-2.1.0/src/vendor/mod.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive_more-2.1.0/src/vendor/thiserror/mod.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive_more-2.1.0/src/vendor/thiserror/aserror.rs
+
+/Users/mac/workspace/v-connect-im-plugin-storage/target/debug/deps/libderive_more-e062cc1b2c6bf8eb.rlib: /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive_more-2.1.0/src/lib.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive_more-2.1.0/src/as.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive_more-2.1.0/src/vendor/mod.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive_more-2.1.0/src/vendor/thiserror/mod.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive_more-2.1.0/src/vendor/thiserror/aserror.rs
+
+/Users/mac/workspace/v-connect-im-plugin-storage/target/debug/deps/libderive_more-e062cc1b2c6bf8eb.rmeta: /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive_more-2.1.0/src/lib.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive_more-2.1.0/src/as.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive_more-2.1.0/src/vendor/mod.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive_more-2.1.0/src/vendor/thiserror/mod.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive_more-2.1.0/src/vendor/thiserror/aserror.rs
+
+/Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive_more-2.1.0/src/lib.rs:
+/Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive_more-2.1.0/src/as.rs:
+/Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive_more-2.1.0/src/vendor/mod.rs:
+/Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive_more-2.1.0/src/vendor/thiserror/mod.rs:
+/Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/derive_more-2.1.0/src/vendor/thiserror/aserror.rs:
