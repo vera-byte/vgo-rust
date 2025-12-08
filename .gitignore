@@ -42,7 +42,6 @@ dist/
 
 # 插件编译产物 / Plugin build artifacts
 v-plugins-hub/*/target/
-
 # 测试覆盖率 / Test coverage
 coverage/
 *.profraw
