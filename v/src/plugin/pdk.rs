@@ -237,26 +237,62 @@ struct PluginArgs {
     log_level: String,
 }
 
-/// 运行插件服务器（类似 Go 的 pdk.RunServer）
-/// Run plugin server (similar to Go's pdk.RunServer)
+/// 插件配置 / Plugin configuration
+#[derive(serde::Deserialize)]
+struct PluginConfig {
+    plugin_no: String,
+    version: String,
+    priority: i32,
+}
+
+/// 运行插件服务器 / Run plugin server
 ///
-/// # 参数 / Arguments
-/// - `plugin_no`: 插件编号 / Plugin number
-/// - `version`: 插件版本 / Plugin version
-/// - `priority`: 插件优先级 / Plugin priority
+/// 这是插件的主入口函数，负责：
+/// This is the main entry function for plugins, responsible for:
 ///
-/// # 用法 / Usage
-/// ```ignore
+/// 1. 读取 plugin.json 配置 / Read plugin.json configuration
+/// 2. 解析命令行参数 / Parse command line arguments
+/// 3. 初始化日志系统 / Initialize logging system
+/// 4. 创建并启动插件客户端 / Create and start plugin client
+/// 5. 处理优雅关闭 / Handle graceful shutdown
+///
+/// # 类型参数 / Type Parameters
+///
+/// * `P` - 实现了 `Plugin` trait 的插件类型 / Plugin type that implements the `Plugin` trait
+///
+/// # 示例 / Example
+///
+/// ```no_run
+/// use v::plugin::pdk::{Plugin, run_server};
+///
+/// struct AIExample;
+///
+/// impl Plugin for AIExample {
+///     // ... implementation
+/// }
+///
 /// #[tokio::main]
-/// async fn main() -> Result<()> {
-///     run_server::<AIExample>("wk.plugin.ai-example", "0.1.0", 1).await
+/// async fn main() -> anyhow::Result<()> {
+///     run_server::<AIExample>().await
 /// }
 /// ```
-pub async fn run_server<P: Plugin>(
-    plugin_no: &'static str,
-    version: &'static str,
-    priority: i32,
-) -> Result<()> {
+pub async fn run_server<P: Plugin>() -> Result<()> {
+    // 读取 plugin.json 配置 / Read plugin.json configuration
+    let config_path = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|p| p.join("plugin.json")))
+        .unwrap_or_else(|| std::path::PathBuf::from("plugin.json"));
+
+    let config_content = std::fs::read_to_string(&config_path).map_err(|e| {
+        anyhow::anyhow!("Failed to read plugin.json: {}. Path: {:?}", e, config_path)
+    })?;
+
+    let config: PluginConfig = serde_json::from_str(&config_content)
+        .map_err(|e| anyhow::anyhow!("Failed to parse plugin.json: {}", e))?;
+
+    let plugin_no = config.plugin_no;
+    let version = config.version;
+    let priority = config.priority;
     let args = PluginArgs::parse();
 
     // 初始化日志 / Initialize logging
@@ -286,7 +322,10 @@ pub async fn run_server<P: Plugin>(
     info!("📊 Log level: {:?}", log_level);
 
     // 从插件编号提取名称 / Extract name from plugin number
-    let name = plugin_no.strip_prefix("wk.plugin.").unwrap_or(plugin_no);
+    let name = plugin_no
+        .strip_prefix("wk.plugin.")
+        .or_else(|| plugin_no.strip_prefix("v.plugin."))
+        .unwrap_or(&plugin_no);
 
     let socket_path = args
         .socket
@@ -301,8 +340,8 @@ pub async fn run_server<P: Plugin>(
     let plugin = P::new();
     let wrapper = PluginWrapper {
         plugin,
-        name: Box::leak(name.to_string().into_boxed_str()),
-        version,
+        name: Box::leak(plugin_no.into_boxed_str()),
+        version: Box::leak(version.into_boxed_str()),
         priority,
     };
 

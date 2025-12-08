@@ -1522,19 +1522,6 @@ fn build_http_server(
     .shutdown_timeout(30);
 
     info!("🌐 HTTP Server starting on http://{}", addr);
-    info!("📡 Available HTTP endpoints:");
-    info!("   POST /api/send - Send message to specific client");
-    info!("   POST /api/broadcast - Broadcast message to all clients");
-    info!("   GET  /health - Basic health check");
-    info!("   GET  /health/detailed - Detailed health check with metrics");
-    info!("   GET  /health/ready - Readiness check");
-    info!("   GET  /health/live - Liveness check");
-    info!("");
-    info!("💡 Example HTTP requests:");
-    info!("   Send: curl -X POST http://{}/api/send -H 'Content-Type: application/json' -d '{{\"from_client_id\":\"xxx\",\"to_client_id\":\"yyy\",\"content\":{{\"text\":\"Hello\"}}}}'", addr);
-    info!("   Broadcast: curl -X POST http://{}/api/broadcast -H 'Content-Type: application/json' -d '{{\"from_client_id\":\"xxx\",\"content\":{{\"text\":\"Hello All\"}}}}'", addr);
-    info!("   Health: curl http://{}/health", addr);
-    info!("   Detailed Health: curl http://{}/health/detailed", addr);
 
     Ok(actix.run())
 }

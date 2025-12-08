@@ -115,6 +115,7 @@ pub struct PluginRuntimeManager {
 /// 插件元数据 / Plugin metadata
 #[derive(Clone, Default)]
 struct PluginMetadata {
+    plugin_no: Option<String>,
     version: Option<String>,
 }
 
@@ -199,6 +200,8 @@ impl PluginRuntimeManager {
 
     /// 启动插件 / Start plugin
     pub async fn start_plugin(&self, name: &str) -> Result<()> {
+        info!("🚀 正在启动插件 / Starting plugin: {}", name);
+
         // 检查是否已存在 / Check if already exists
         if let Some(runtime) = self.plugins.get(name) {
             let status = runtime.status();
@@ -209,7 +212,9 @@ impl PluginRuntimeManager {
         }
 
         // 查找插件二进制文件 / Find plugin binary
+        debug!("查找插件二进制文件 / Looking for plugin binary: {}", name);
         let plugin_path = self.find_plugin_binary(name)?;
+        info!("✅ 找到插件二进制 / Found plugin binary: {:?}", plugin_path);
         let socket_path = if let Some(global) = &self.global_socket_path {
             global.clone()
         } else {
@@ -602,15 +607,17 @@ impl PluginRuntimeManager {
         let manifest = self.plugin_dir.join(name).join("plugin.json");
         if let Ok(content) = std::fs::read_to_string(&manifest) {
             if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
-                if let Some(version) = value
+                let plugin_no = value
+                    .get("plugin_no")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                let version = value
                     .get("version")
                     .and_then(|v| v.as_str())
-                    .map(|s| s.to_string())
-                {
-                    return PluginMetadata {
-                        version: Some(version),
-                    };
-                }
+                    .map(|s| s.to_string());
+
+                return PluginMetadata { plugin_no, version };
             }
         }
         PluginMetadata::default()
@@ -752,35 +759,68 @@ impl UnixSocketServer {
                         );
 
                         // 保存插件信息 / Save plugin info
-                        // 尝试匹配完整名称或简短名称 / Try to match full name or short name
+                        // name 是插件的 PLUGIN_NO (例如 "v.plugin.storage-sled")
+                        // 需要找到对应的运行时插件（目录名，例如 "v-connect-im-plugin-storage-sled"）
                         let mut found = false;
-                        if let Some(runtime) = manager.plugins.get(name) {
-                            runtime.set_capabilities(capabilities.clone());
-                            runtime.set_priority(priority);
-                            runtime.set_status(PluginStatus::Running); // 更新状态为 Running / Update status to Running
-                            found = true;
-                            info!("✅ 插件信息已更新（完整名称匹配）/ Plugin info updated (full name match): {}", name);
-                        } else {
-                            // 尝试提取简短名称 / Try to extract short name
-                            // 例如 "v.plugin.example" -> "example" 或 "wk.plugin.ai" -> "ai"
-                            let short_name = name
-                                .strip_prefix("v.plugin.")
-                                .or_else(|| name.strip_prefix("wk.plugin."))
-                                .unwrap_or(name);
+                        let mut matched_key: Option<String> = None;
 
-                            if let Some(runtime) = manager.plugins.get(short_name) {
-                                runtime.set_capabilities(capabilities.clone());
-                                runtime.set_priority(priority);
-                                runtime.set_status(PluginStatus::Running); // 更新状态为 Running / Update status to Running
-                                found = true;
-                                info!("✅ 插件信息已更新（简短名称匹配）/ Plugin info updated (short name match): {} -> {}", name, short_name);
+                        // 遍历所有已注册的插件，通过 plugin.json 中的 plugin_no 匹配
+                        for entry in manager.plugins.iter() {
+                            let key = entry.key();
+                            let metadata = manager.read_plugin_metadata(key);
+                            if let Some(plugin_no) = metadata.plugin_no {
+                                if plugin_no == name {
+                                    matched_key = Some(key.clone());
+                                    break;
+                                }
+                            }
+
+                            // 如果没有 plugin_no，尝试通过名称匹配
+                            if matched_key.is_none() {
+                                let short_name = name
+                                    .strip_prefix("v.plugin.")
+                                    .or_else(|| name.strip_prefix("wk.plugin."))
+                                    .unwrap_or(name);
+
+                                if key == name
+                                    || key == short_name
+                                    || key.contains(short_name)
+                                    || key.ends_with(short_name)
+                                {
+                                    matched_key = Some(key.clone());
+                                    break;
+                                }
                             }
                         }
+
+                        if let Some(ref key) = matched_key {
+                            if let Some(runtime) = manager.plugins.get(key) {
+                                runtime.set_capabilities(capabilities.clone());
+                                runtime.set_priority(priority);
+                                runtime.set_status(PluginStatus::Running);
+                                found = true;
+                                info!(
+                                    "✅ 插件信息已更新 / Plugin info updated: {} -> {}",
+                                    name, key
+                                );
+                            }
+                        }
+
+                        // 确定注册名称：使用匹配到的运行时名称 / Determine registration name
+                        let register_name = matched_key.unwrap_or_else(|| name.to_string());
 
                         if !found {
                             warn!(
                                 "⚠️  未找到插件运行时信息 / Plugin runtime not found: {}",
                                 name
+                            );
+                            debug!(
+                                "已注册的插件列表 / Registered plugins: {:?}",
+                                manager
+                                    .plugins
+                                    .iter()
+                                    .map(|e| e.key().clone())
+                                    .collect::<Vec<_>>()
                             );
                         }
 
@@ -794,14 +834,8 @@ impl UnixSocketServer {
                         write_half.flush().await?;
 
                         // 重新组合 stream 并注册到连接池 / Reunite stream and register to pool
-                        // 使用简短名称注册，以便后续查找 / Use short name for registration for later lookup
-                        let register_name = name
-                            .strip_prefix("v.plugin.")
-                            .or_else(|| name.strip_prefix("wk.plugin."))
-                            .unwrap_or(name);
-
                         let reunited = read_half.reunite(write_half)?;
-                        pool.register(register_name.to_string(), reunited);
+                        pool.register(register_name.clone(), reunited);
 
                         info!(
                             "✅ Plugin {} registered to connection pool as '{}'",

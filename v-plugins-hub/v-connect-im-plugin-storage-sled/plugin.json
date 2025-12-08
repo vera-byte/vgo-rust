@@ -1,0 +1,11 @@
+{
+    "plugin_no": "v.plugin.storage-sled",
+    "name": "v-connect-im-plugin-storage-sled",
+    "version": "0.1.0",
+    "description": "High-performance storage plugin for v-connect-im based on Sled embedded database",
+    "author": "VGO Team",
+    "capabilities": [
+        "storage"
+    ],
+    "priority": 900
+}

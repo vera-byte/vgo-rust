@@ -134,5 +134,6 @@ impl Plugin for StoragePlugin {
 #[tokio::main]
 async fn main() -> Result<()> {
     // 启动存储插件服务器 / Start storage plugin server
-    v::plugin::pdk::run_server::<StoragePlugin>(PLUGIN_NO, VERSION, PRIORITY).await
+    // 插件元信息从 plugin.json 自动读取 / Plugin metadata is automatically read from plugin.json
+    v::plugin::pdk::run_server::<StoragePlugin>().await
 }
