@@ -1775,8 +1775,8 @@ async fn main() -> Result<()> {
     server_builder = server_builder.with_node(node_id.clone(), directory.clone());
     server_builder = server_builder.with_raft(raft_cluster.clone());
     server_builder = server_builder.with_plugin_runtime_manager(runtime_manager_arc.clone());
-    if let Some(pool) = plugin_connection_pool {
-        server_builder = server_builder.with_plugin_connection_pool(pool);
+    if let Some(ref pool) = plugin_connection_pool {
+        server_builder = server_builder.with_plugin_connection_pool(pool.clone());
     }
     let server = Arc::new(server_builder);
     directory.register_server(&node_id, server.clone());
@@ -1843,43 +1843,52 @@ async fn main() -> Result<()> {
     };
 
     // 等待服务器运行 / Wait for servers to run
-    let mut socket_task = socket_server_task;
+    let socket_task = socket_server_task;
     tokio::select! {
         _ = ws_future => {
             info!("WebSocket server stopped");
             let _ = shutdown_tx.send(true);
-            // 让 Unix Socket server 自行接收关闭并退出 / Let socket server exit via shutdown
         }
         _ = http_future => {
             info!("HTTP server stopped");
-            let _ = shutdown_tx.send(true);
-            // 让 Unix Socket server 自行接收关闭并退出 / Let socket server exit via shutdown
-        }
-        _ = async {
-            if let Some(handle) = socket_task.take() {
-                let _ = handle.await;
-            } else {
-                std::future::pending::<()>().await;
-            }
-        } => {
-            info!("Unix Socket server stopped");
             let _ = shutdown_tx.send(true);
         }
         _ = tokio::signal::ctrl_c() => {
             info!("🛎️ Ctrl-C received, initiating shutdown");
             let _ = shutdown_tx.send(true);
-            // 让 Unix Socket server 自行接收关闭并退出 / Let socket server exit via shutdown
         }
     }
 
+    // 等待 Unix Socket server 任务完成 / Wait for Unix Socket server task to complete
+    if let Some(handle) = socket_task {
+        info!("⏳ 等待 Unix Socket server 退出 / Waiting for Unix Socket server to exit");
+        match tokio::time::timeout(Duration::from_secs(2), handle).await {
+            Ok(_) => {
+                info!("✅ Unix Socket server 已退出 / Unix Socket server exited");
+            }
+            Err(_) => {
+                warn!("⏰ Unix Socket server 退出超时 / Unix Socket server exit timeout");
+            }
+        }
+    }
+
+    // 关闭所有插件连接 / Close all plugin connections
+    if let Some(pool) = &plugin_connection_pool {
+        pool.close_all().await;
+    }
+
     // 停止所有插件 / Stop all plugins
+    debug!("🛑 开始停止所有插件 / Starting to stop all plugins");
     if let Err(e) = runtime_manager_arc.stop_all().await {
         warn!("Failed to stop plugins: {}", e);
     }
+    debug!("✅ 所有插件已停止 / All plugins stopped");
 
+    debug!("📢 发送插件关闭事件 / Emitting plugin shutdown event");
     if let Err(e) = server.plugin_registry.emit_shutdown().await {
         warn!("plugin shutdown error: {}", e);
     }
+    debug!("✅ 插件关闭事件已发送 / Plugin shutdown event emitted");
 
     info!("✅ Server shutdown successfully");
 

@@ -5,6 +5,7 @@
 
 use anyhow::{anyhow, Result};
 use dashmap::DashMap;
+use futures_util::future;
 use parking_lot::RwLock;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -308,31 +309,125 @@ impl PluginRuntimeManager {
     /// 停止插件 / Stop plugin
     pub async fn stop_plugin(&self, name: &str) -> Result<()> {
         if let Some(runtime) = self.plugins.get(name) {
+            info!("🛑 正在停止插件 / Stopping plugin: {}", name);
             runtime.set_status(PluginStatus::Stopping);
 
             // 终止进程 / Terminate process
+            let mut killed = false;
             if let Some(mut child) = {
                 let mut guard = runtime.process.write();
                 guard.take()
             } {
+                // 先尝试优雅终止 / Try graceful termination first
                 if let Err(e) = child.kill().await {
                     error!("Failed to kill plugin {}: {}", name, e);
-                } else if let Err(e) = child.wait().await {
-                    error!("Failed to wait plugin {} exit: {}", name, e);
+                } else {
+                    // 等待进程退出，最多等待 3 秒 / Wait for process exit, max 3 seconds
+                    match tokio::time::timeout(Duration::from_secs(3), child.wait()).await {
+                        Ok(Ok(status)) => {
+                            info!(
+                                "✅ 插件 {} 已退出 / Plugin {} exited with status: {:?}",
+                                name, name, status
+                            );
+                            killed = true;
+                        }
+                        Ok(Err(e)) => {
+                            error!(
+                                "❌ 等待插件 {} 退出失败 / Failed to wait plugin {} exit: {}",
+                                name, name, e
+                            );
+                        }
+                        Err(_) => {
+                            warn!("⏰ 插件 {} 退出超时 / Plugin {} exit timeout", name, name);
+                        }
+                    }
+                }
+            } else {
+                debug!("插件 {} 进程句柄不存在，尝试通过名称杀死进程 / Plugin {} process handle not found, trying to kill by name", name, name);
+            }
+
+            // 如果进程句柄不存在或杀死失败，尝试使用 pkill / If process handle not found or kill failed, try pkill
+            if !killed {
+                #[cfg(unix)]
+                {
+                    // 先检查是否有相关进程在运行 / First check if there are related processes running
+                    let pgrep_result = tokio::process::Command::new("pgrep")
+                        .arg("-f")
+                        .arg(name)
+                        .output()
+                        .await;
+
+                    match pgrep_result {
+                        Ok(output) => {
+                            if output.status.success() && !output.stdout.is_empty() {
+                                let pids = String::from_utf8_lossy(&output.stdout);
+                                info!("🔍 找到插件 {} 的进程 PID: {} / Found plugin {} processes with PIDs: {}", 
+                                      name, pids.trim(), name, pids.trim());
+
+                                // 尝试使用 pkill 杀死插件进程 / Try to kill plugin process using pkill
+                                let pkill_result = tokio::process::Command::new("pkill")
+                                    .arg("-9") // 使用 SIGKILL 强制终止 / Use SIGKILL to force terminate
+                                    .arg("-f")
+                                    .arg(name)
+                                    .output()
+                                    .await;
+
+                                match pkill_result {
+                                    Ok(output) => {
+                                        if output.status.success() {
+                                            info!("✅ 使用 pkill 成功终止插件 {} / Successfully killed plugin {} using pkill", name, name);
+                                            // 等待一小段时间让进程真正退出 / Wait a moment for process to actually exit
+                                            debug!("⏳ 等待 500ms 让进程退出 / Waiting 500ms for process to exit");
+                                            tokio::time::sleep(Duration::from_millis(500)).await;
+                                            debug!("✅ 等待完成 / Wait completed");
+                                        } else {
+                                            warn!("⚠️  pkill 执行失败 / pkill execution failed");
+                                        }
+                                    }
+                                    Err(e) => {
+                                        error!("❌ pkill 执行错误 / pkill execution error: {}", e);
+                                    }
+                                }
+                            } else {
+                                debug!("✅ 未找到插件 {} 的运行进程（可能已退出）/ No running process found for plugin {} (may have already exited)", name, name);
+                            }
+                        }
+                        Err(e) => {
+                            debug!("pgrep 执行失败 / pgrep execution failed: {}", e);
+                        }
+                    }
                 }
             }
 
             // 清理 socket / Cleanup socket
+            debug!("🧹 开始清理 socket / Starting socket cleanup");
             if let Some(socket_path) = &runtime.socket_path {
-                let _ = std::fs::remove_file(socket_path);
+                if let Err(e) = std::fs::remove_file(socket_path) {
+                    debug!("清理 socket 文件失败 / Failed to remove socket file: {}", e);
+                }
             }
+            debug!("✅ Socket 清理完成 / Socket cleanup completed");
 
+            debug!("📝 更新插件状态 / Updating plugin status");
             runtime.set_status(PluginStatus::Stopped);
+
+            // 必须先释放 runtime 引用，否则 remove 会死锁 / Must drop runtime reference first, otherwise remove will deadlock
+            debug!("🔓 释放插件引用 / Dropping plugin reference");
+            drop(runtime);
+
+            debug!("🗑️  从插件列表移除 / Removing from plugin list");
+            let before_size = self.plugins.len();
+            debug!("🔍 插件列表当前大小: {}", before_size);
             self.plugins.remove(name);
-            info!("Plugin {} stopped", name);
+            let after_size = self.plugins.len();
+            debug!("✅ 插件已从列表移除 / Plugin removed from list");
+            debug!("🔍 插件列表移除后大小: {}", after_size);
+            info!("✅ 插件 {} 已停止 / Plugin {} stopped", name, name);
+            debug!("🎯 stop_plugin 方法即将返回 / stop_plugin method about to return");
             Ok(())
         } else {
-            Err(anyhow!("Plugin {} not found", name))
+            warn!("插件 {} 未找到 / Plugin {} not found", name, name);
+            Ok(()) // 不返回错误，避免阻塞其他插件的停止 / Don't return error to avoid blocking other plugins
         }
     }
 
@@ -444,9 +539,44 @@ impl PluginRuntimeManager {
     pub async fn stop_all(&self) -> Result<()> {
         let names: Vec<String> = self.plugins.iter().map(|e| e.key().clone()).collect();
 
-        for name in names {
-            if let Err(e) = self.stop_plugin(&name).await {
-                error!("Failed to stop plugin {}: {}", name, e);
+        if names.is_empty() {
+            info!("没有需要停止的插件 / No plugins to stop");
+            return Ok(());
+        }
+
+        info!(
+            "🛑 正在停止 {} 个插件 / Stopping {} plugins",
+            names.len(),
+            names.len()
+        );
+
+        // 并发停止所有插件，最多等待 5 秒 / Stop all plugins concurrently, max 5 seconds
+        debug!("📦 创建停止任务 / Creating stop tasks");
+        let stop_futures: Vec<_> = names.iter().map(|name| self.stop_plugin(name)).collect();
+
+        debug!("⏳ 等待所有插件停止（最多5秒）/ Waiting for all plugins to stop (max 5s)");
+        match tokio::time::timeout(Duration::from_secs(5), future::join_all(stop_futures)).await {
+            Ok(results) => {
+                debug!("✅ 所有插件停止任务完成 / All plugin stop tasks completed");
+                let mut success_count = 0;
+                let mut error_count = 0;
+                for (name, result) in names.iter().zip(results) {
+                    match result {
+                        Ok(_) => success_count += 1,
+                        Err(e) => {
+                            error!(
+                                "❌ 停止插件 {} 失败 / Failed to stop plugin {}: {}",
+                                name, name, e
+                            );
+                            error_count += 1;
+                        }
+                    }
+                }
+                info!("✅ 插件停止完成：成功 {} 个，失败 {} 个 / Plugin stop completed: {} succeeded, {} failed", 
+                      success_count, error_count, success_count, error_count);
+            }
+            Err(_) => {
+                warn!("⏰ 停止插件超时（5秒），继续关闭 / Stop plugins timeout (5s), continuing shutdown");
             }
         }
 
@@ -732,6 +862,35 @@ impl PluginConnectionPool {
     /// 移除插件连接 / Remove plugin connection
     pub fn unregister(&self, name: &str) {
         self.connections.remove(name);
+    }
+
+    /// 关闭所有插件连接 / Close all plugin connections
+    pub async fn close_all(&self) {
+        let count = self.connections.len();
+        if count > 0 {
+            info!(
+                "🔌 关闭 {} 个插件连接 / Closing {} plugin connections",
+                count, count
+            );
+
+            // 显式关闭每个连接 / Explicitly close each connection
+            let names: Vec<String> = self.connections.iter().map(|e| e.key().clone()).collect();
+            for name in names {
+                if let Some((_, conn)) = self.connections.remove(&name) {
+                    // 获取 stream 的所有权并 drop，这会关闭 socket
+                    // Take ownership of stream and drop it, which closes the socket
+                    drop(conn);
+                    debug!(
+                        "🔌 已关闭插件 {} 的连接 / Closed connection for plugin {}",
+                        name, name
+                    );
+                }
+            }
+
+            info!("✅ 所有插件连接已关闭 / All plugin connections closed");
+        } else {
+            debug!("没有需要关闭的插件连接 / No plugin connections to close");
+        }
     }
 
     /// 向插件发送事件 / Send event to plugin
