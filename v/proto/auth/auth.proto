@@ -1,0 +1,124 @@
+// 认证插件协议 / Authentication plugin protocol
+syntax = "proto3";
+
+package v.plugin.auth;
+
+// ============================================================================
+// 登录认证 / Login Authentication
+// ============================================================================
+
+// 登录请求 / Login request
+message LoginRequest {
+  string username = 1;  // 用户名 / Username
+  string password = 2;  // 密码 / Password
+  string device_id = 3; // 设备ID / Device ID
+  string ip = 4;        // IP地址 / IP address
+}
+
+// 登录响应 / Login response
+message LoginResponse {
+  string status = 1;    // 状态 / Status
+  string token = 2;     // 访问令牌 / Access token
+  string uid = 3;       // 用户ID / User ID
+  int64 expires_at = 4; // 过期时间 / Expiration time
+}
+
+// ============================================================================
+// 登出 / Logout
+// ============================================================================
+
+// 登出请求 / Logout request
+message LogoutRequest {
+  string uid = 1;   // 用户ID / User ID
+  string token = 2; // 令牌 / Token
+}
+
+// 登出响应 / Logout response
+message LogoutResponse {
+  string status = 1; // 状态 / Status
+}
+
+// ============================================================================
+// 踢出用户 / Kick Out User
+// ============================================================================
+
+// 踢出用户请求 / Kick out request
+message KickOutRequest {
+  string uid = 1;          // 用户ID / User ID
+  string reason = 2;       // 原因 / Reason
+  string operator_uid = 3; // 操作者ID / Operator UID
+}
+
+// 踢出用户响应 / Kick out response
+message KickOutResponse {
+  string status = 1; // 状态 / Status
+}
+
+// ============================================================================
+// Token 续期 / Token Renewal
+// ============================================================================
+
+// Token 续期请求 / Token renew request
+message RenewTokenRequest {
+  string uid = 1;       // 用户ID / User ID
+  string old_token = 2; // 旧令牌 / Old token
+}
+
+// Token 续期响应 / Token renew response
+message RenewTokenResponse {
+  string status = 1;    // 状态 / Status
+  string new_token = 2; // 新令牌 / New token
+  int64 expires_at = 3; // 过期时间 / Expiration time
+}
+
+// ============================================================================
+// Token 替换 / Token Replacement
+// ============================================================================
+
+// Token 替换请求 / Token replaced request
+message TokenReplacedRequest {
+  string uid = 1;       // 用户ID / User ID
+  string old_token = 2; // 旧令牌 / Old token
+  string new_token = 3; // 新令牌 / New token
+  string device_id = 4; // 设备ID / Device ID
+}
+
+// Token 替换响应 / Token replaced response
+message TokenReplacedResponse {
+  string status = 1; // 状态 / Status
+}
+
+// ============================================================================
+// 用户封禁 / User Ban
+// ============================================================================
+
+// 用户封禁请求 / User ban request
+message BanUserRequest {
+  string uid = 1;    // 用户ID / User ID
+  string reason = 2; // 原因 / Reason
+  int64 ban_until =
+      3; // 封禁到期时间（0表示永久）/ Ban until (0 means permanent)
+  string operator_uid = 4; // 操作者ID / Operator UID
+}
+
+// 用户封禁响应 / User ban response
+message BanUserResponse {
+  string status = 1; // 状态 / Status
+}
+
+// ============================================================================
+// Token 验证 / Token Validation
+// ============================================================================
+
+// Token 验证请求 / Token validate request
+message ValidateTokenRequest {
+  string token = 1; // 令牌 / Token
+}
+
+// Token 验证响应 / Token validate response
+message ValidateTokenResponse {
+  string status = 1;    // 状态 / Status
+  bool valid = 2;       // 是否有效 / Is valid
+  string uid = 3;       // 用户ID / User ID
+  int64 expires_at = 4; // 过期时间 / Expiration time
+}

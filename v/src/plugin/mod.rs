@@ -19,4 +19,7 @@ pub mod client;
 pub mod events;
 pub mod installer;
 pub mod pdk;
+#[cfg(feature = "protobuf")]
+pub mod proto;
+pub mod protocol;
 pub mod types;

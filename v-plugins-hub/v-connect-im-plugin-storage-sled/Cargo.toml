@@ -13,14 +13,14 @@ path = "src/main.rs"
 
 [dependencies]
 # 使用工作空间依赖 / Use workspace dependencies
-v = { workspace = true }
+v = { workspace = true, features = ["protobuf"] }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-
-# 异步trait支持 / Async trait support
-async-trait = "0.1"
+async-trait = { workspace = true }
+prost = { workspace = true }
+chrono = { workspace = true }
 
 # 插件特定依赖 / Plugin-specific dependencies
 sled = "0.34"  # 存储后端 / Storage backend

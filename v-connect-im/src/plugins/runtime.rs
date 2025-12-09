@@ -255,11 +255,50 @@ impl PluginRuntimeManager {
             Command::new(&runtime.path)
         };
 
+        // 创建插件日志目录 / Create plugin log directory
+        let log_dir = PathBuf::from("./logs/plugins").join(name);
+        if let Err(e) = std::fs::create_dir_all(&log_dir) {
+            warn!("Failed to create plugin log directory {:?}: {}", log_dir, e);
+        }
+
+        // 创建日志文件 / Create log files
+        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+        let stdout_log = log_dir.join(format!("stdout_{}.log", timestamp));
+        let stderr_log = log_dir.join(format!("stderr_{}.log", timestamp));
+
+        let stdout_file = match std::fs::File::create(&stdout_log) {
+            Ok(f) => {
+                info!("📝 Plugin {} stdout log: {:?}", name, stdout_log);
+                Stdio::from(f)
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to create stdout log file {:?}: {}, using inherit",
+                    stdout_log, e
+                );
+                Stdio::inherit()
+            }
+        };
+
+        let stderr_file = match std::fs::File::create(&stderr_log) {
+            Ok(f) => {
+                info!("📝 Plugin {} stderr log: {:?}", name, stderr_log);
+                Stdio::from(f)
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to create stderr log file {:?}: {}, using inherit",
+                    stderr_log, e
+                );
+                Stdio::inherit()
+            }
+        };
+
         cmd.arg("--socket")
             .arg(socket_path.to_string_lossy().as_ref())
             .stdin(Stdio::null())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit());
+            .stdout(stdout_file)
+            .stderr(stderr_file);
 
         // 添加 debug 参数 / Add debug arguments
         if self.debug_mode {

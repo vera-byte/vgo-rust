@@ -168,15 +168,6 @@ pub trait Plugin: Sized {
     fn on_config_update(&mut self, _config: Self::Config) -> Result<()> {
         Ok(())
     }
-
-    /// 声明插件能力（可选）/ Declare plugin capabilities (optional)
-    ///
-    /// 默认返回空能力，插件需要明确声明所需的能力
-    /// Default returns empty capabilities, plugins must explicitly declare required capabilities
-    fn capabilities(&self) -> Vec<String> {
-        // 默认无能力，插件需要明确申请 / Default no capabilities, plugins must explicitly request
-        vec![]
-    }
 }
 
 /// 插件包装器，将 Plugin trait 适配到 PluginHandler
@@ -186,6 +177,8 @@ struct PluginWrapper<P: Plugin> {
     name: &'static str,
     version: &'static str,
     priority: i32,
+    capabilities: Vec<String>,
+    protocol: crate::plugin::protocol::ProtocolFormat,
 }
 
 impl<P: Plugin> PluginHandler for PluginWrapper<P> {
@@ -198,25 +191,52 @@ impl<P: Plugin> PluginHandler for PluginWrapper<P> {
     }
 
     fn capabilities(&self) -> Vec<String> {
-        // 调用插件的 capabilities 方法 / Call plugin's capabilities method
-        self.plugin.capabilities()
+        // 从配置文件读取的能力列表 / Capabilities list read from config file
+        self.capabilities.clone()
     }
 
     fn priority(&self) -> i32 {
         self.priority
     }
 
-    fn config(&mut self, cfg: &Value) -> Result<()> {
-        if let Ok(config) = serde_json::from_value::<P::Config>(cfg.clone()) {
-            self.plugin.on_config_update(config)?;
+    fn config(&mut self, cfg: &str) -> Result<()> {
+        if !cfg.is_empty() {
+            if let Ok(value) = serde_json::from_str::<Value>(cfg) {
+                if let Ok(config) = serde_json::from_value::<P::Config>(value) {
+                    self.plugin.on_config_update(config)?;
+                }
+            }
         }
         Ok(())
     }
 
-    fn on_event(&mut self, event_type: &str, payload: &Value) -> Result<Value> {
-        let mut ctx = Context::new(event_type, payload);
+    fn on_event(
+        &mut self,
+        event: &crate::plugin::protocol::EventMessage,
+    ) -> Result<crate::plugin::protocol::EventResponse> {
+        // 从 payload 解析为 JSON Value（临时兼容）
+        let payload: Value = if event.payload.is_empty() {
+            Value::Null
+        } else {
+            serde_json::from_slice(&event.payload)?
+        };
+
+        let mut ctx = Context::new(&event.event_type, &payload);
         self.plugin.receive(&mut ctx)?;
-        Ok(ctx.take_response())
+        let response_data = ctx.take_response();
+
+        // 构建 EventResponse
+        Ok(crate::plugin::protocol::EventResponse {
+            status: "ok".to_string(),
+            flow: "continue".to_string(),
+            data: serde_json::to_vec(&response_data)?,
+            error: String::new(),
+        })
+    }
+
+    // 使用配置文件中指定的协议 / Use protocol specified in config file
+    fn protocol(&self) -> crate::plugin::protocol::ProtocolFormat {
+        self.protocol
     }
 }
 
@@ -243,6 +263,8 @@ struct PluginConfig {
     plugin_no: String,
     version: String,
     priority: i32,
+    #[serde(default)]
+    capabilities: Vec<String>,
 }
 
 /// 运行插件服务器 / Run plugin server
@@ -283,9 +305,13 @@ pub async fn run_server<P: Plugin>() -> Result<()> {
         .and_then(|exe| exe.parent().map(|p| p.join("plugin.json")))
         .unwrap_or_else(|| std::path::PathBuf::from("plugin.json"));
 
+    eprintln!("🔍 Reading plugin.json from: {:?}", config_path);
+
     let config_content = std::fs::read_to_string(&config_path).map_err(|e| {
         anyhow::anyhow!("Failed to read plugin.json: {}. Path: {:?}", e, config_path)
     })?;
+
+    eprintln!("📄 plugin.json content:\n{}", config_content);
 
     let config: PluginConfig = serde_json::from_str(&config_content)
         .map_err(|e| anyhow::anyhow!("Failed to parse plugin.json: {}", e))?;
@@ -331,9 +357,12 @@ pub async fn run_server<P: Plugin>() -> Result<()> {
         .socket
         .unwrap_or_else(|| format!("./plugins/{}.sock", name));
 
+    // 使用 Protobuf 协议 / Use Protobuf protocol
+    let protocol = crate::plugin::protocol::ProtocolFormat::Protobuf;
+
     info!(
-        "🚀 {} v{} starting... (priority: {})",
-        plugin_no, version, priority
+        "🚀 {} v{} starting... (priority: {}, protocol: {:?})",
+        plugin_no, version, priority, protocol
     );
     info!("📡 Socket path: {}", socket_path);
 
@@ -343,8 +372,186 @@ pub async fn run_server<P: Plugin>() -> Result<()> {
         name: Box::leak(plugin_no.into_boxed_str()),
         version: Box::leak(version.into_boxed_str()),
         priority,
+        capabilities: config.capabilities,
+        protocol,
     };
 
     let mut client = PluginClient::new(socket_path, wrapper);
     client.run_forever_with_ctrlc().await
+}
+
+// ============================================================================
+// 自动事件分发 / Auto Event Dispatch
+// ============================================================================
+
+/// 分发存储事件到对应的监听器方法 / Dispatch storage event to listener method
+///
+/// 自动解码 Protobuf 消息并调用对应的方法
+/// Automatically decodes Protobuf message and calls corresponding method
+pub async fn dispatch_storage_event(
+    listener: &mut dyn StorageEventListener,
+    event: &crate::plugin::protocol::EventMessage,
+) -> Result<crate::plugin::protocol::EventResponse> {
+    use crate::plugin::protocol::*;
+    use prost::Message;
+
+    match event.event_type.as_str() {
+        "storage.message.save" => {
+            let req = SaveMessageRequest::decode(event.payload.as_slice())?;
+            let resp = listener.storage_message_save(&req).await?;
+            Ok(EventResponse {
+                status: "ok".to_string(),
+                flow: "continue".to_string(),
+                data: resp.encode_to_vec(),
+                error: String::new(),
+            })
+        }
+        "storage.offline.save" => {
+            let req = SaveOfflineMessageRequest::decode(event.payload.as_slice())?;
+            let resp = listener.storage_offline_save(&req).await?;
+            Ok(EventResponse {
+                status: "ok".to_string(),
+                flow: "continue".to_string(),
+                data: resp.encode_to_vec(),
+                error: String::new(),
+            })
+        }
+        "storage.offline.pull" => {
+            let req = PullOfflineMessagesRequest::decode(event.payload.as_slice())?;
+            let resp = listener.storage_offline_pull(&req).await?;
+            Ok(EventResponse {
+                status: "ok".to_string(),
+                flow: "continue".to_string(),
+                data: resp.encode_to_vec(),
+                error: String::new(),
+            })
+        }
+        "storage.offline.ack" => {
+            let req = AckOfflineMessagesRequest::decode(event.payload.as_slice())?;
+            let resp = listener.storage_offline_ack(&req).await?;
+            Ok(EventResponse {
+                status: "ok".to_string(),
+                flow: "continue".to_string(),
+                data: resp.encode_to_vec(),
+                error: String::new(),
+            })
+        }
+        "storage.offline.count" => {
+            let req = CountOfflineMessagesRequest::decode(event.payload.as_slice())?;
+            let resp = listener.storage_offline_count(&req).await?;
+            Ok(EventResponse {
+                status: "ok".to_string(),
+                flow: "continue".to_string(),
+                data: resp.encode_to_vec(),
+                error: String::new(),
+            })
+        }
+        "storage.room.add_member" => {
+            let req = AddRoomMemberRequest::decode(event.payload.as_slice())?;
+            let resp = listener.storage_room_add_member(&req).await?;
+            Ok(EventResponse {
+                status: "ok".to_string(),
+                flow: "continue".to_string(),
+                data: resp.encode_to_vec(),
+                error: String::new(),
+            })
+        }
+        "storage.room.remove_member" => {
+            let req = RemoveRoomMemberRequest::decode(event.payload.as_slice())?;
+            let resp = listener.storage_room_remove_member(&req).await?;
+            Ok(EventResponse {
+                status: "ok".to_string(),
+                flow: "continue".to_string(),
+                data: resp.encode_to_vec(),
+                error: String::new(),
+            })
+        }
+        "storage.room.list_members" => {
+            let req = GetRoomMembersRequest::decode(event.payload.as_slice())?;
+            let resp = listener.storage_room_list_members(&req).await?;
+            Ok(EventResponse {
+                status: "ok".to_string(),
+                flow: "continue".to_string(),
+                data: resp.encode_to_vec(),
+                error: String::new(),
+            })
+        }
+        _ => Err(anyhow::anyhow!(
+            "Unknown storage event: {}",
+            event.event_type
+        )),
+    }
+}
+
+/// 分发认证事件到对应的监听器方法 / Dispatch auth event to listener method
+pub async fn dispatch_auth_event(
+    listener: &mut dyn AuthEventListener,
+    event: &crate::plugin::protocol::EventMessage,
+) -> Result<crate::plugin::protocol::EventResponse> {
+    use crate::plugin::protocol::*;
+    use prost::Message;
+
+    match event.event_type.as_str() {
+        "auth.login" => {
+            let req = LoginRequest::decode(event.payload.as_slice())?;
+            let resp = listener.auth_login(&req).await?;
+            Ok(EventResponse {
+                status: "ok".to_string(),
+                flow: "continue".to_string(),
+                data: resp.encode_to_vec(),
+                error: String::new(),
+            })
+        }
+        "auth.logout" => {
+            let req = LogoutRequest::decode(event.payload.as_slice())?;
+            let resp = listener.auth_logout(&req).await?;
+            Ok(EventResponse {
+                status: "ok".to_string(),
+                flow: "continue".to_string(),
+                data: resp.encode_to_vec(),
+                error: String::new(),
+            })
+        }
+        "auth.kick_out" => {
+            let req = KickOutRequest::decode(event.payload.as_slice())?;
+            let resp = listener.auth_kick_out(&req).await?;
+            Ok(EventResponse {
+                status: "ok".to_string(),
+                flow: "continue".to_string(),
+                data: resp.encode_to_vec(),
+                error: String::new(),
+            })
+        }
+        "auth.renew_token" => {
+            let req = RenewTokenRequest::decode(event.payload.as_slice())?;
+            let resp = listener.auth_renew_token(&req).await?;
+            Ok(EventResponse {
+                status: "ok".to_string(),
+                flow: "continue".to_string(),
+                data: resp.encode_to_vec(),
+                error: String::new(),
+            })
+        }
+        "auth.token_replaced" => {
+            let req = TokenReplacedRequest::decode(event.payload.as_slice())?;
+            let resp = listener.auth_token_replaced(&req).await?;
+            Ok(EventResponse {
+                status: "ok".to_string(),
+                flow: "continue".to_string(),
+                data: resp.encode_to_vec(),
+                error: String::new(),
+            })
+        }
+        "auth.ban_user" => {
+            let req = BanUserRequest::decode(event.payload.as_slice())?;
+            let resp = listener.auth_ban_user(&req).await?;
+            Ok(EventResponse {
+                status: "ok".to_string(),
+                flow: "continue".to_string(),
+                data: resp.encode_to_vec(),
+                error: String::new(),
+            })
+        }
+        _ => Err(anyhow::anyhow!("Unknown auth event: {}", event.event_type)),
+    }
 }

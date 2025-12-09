@@ -1,0 +1,29 @@
+[package]
+name = "v-connect-im-plugin-gateway"
+version = "0.1.0"
+edition = "2021"
+authors = ["VGO Team"]
+description = "HTTP API Gateway plugin for v-connect-im"
+license = "MIT"
+
+# 主程序入口 / Main program entry
+[[bin]]
+name = "v-connect-im-plugin-gateway"
+path = "src/main.rs"
+
+[dependencies]
+# 使用工作空间依赖 / Use workspace dependencies
+v = { workspace = true, features = ["protobuf"] }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+actix-web = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+prost = { workspace = true }
+
+# 网关特定依赖 / Gateway-specific dependencies
+actix-rt = "2.10"

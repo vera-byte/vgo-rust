@@ -638,21 +638,6 @@ impl VConnectIMServer {
 
                                     match delivery_result {
                                         Ok(_) => {
-                                            // 发送消息送达Webhook事件 / Send message delivered webhook event (已移除 / Removed)
-                                            // service::webhook::send_message_webhook(
-                                            //     self,
-                                            //     &message_id,
-                                            //     client_id,
-                                            //     &None, // from_uid
-                                            //     &Some(target_uid.clone()),
-                                            //     &Some(target_uid.clone()),
-                                            //     &wk_msg.data,
-                                            //     "message",
-                                            //     "delivered",
-                                            //     Some(chrono::Utc::now().timestamp_millis()),
-                                            // )
-                                            // .await;
-
                                             // 同时给发送者确认
                                             let confirm_msg = ImMessage {
                                                 msg_type: "message_sent".to_string(),
@@ -687,21 +672,6 @@ impl VConnectIMServer {
                                             .await;
                                         }
                                         Err(_e) => {
-                                            // 发送消息失败Webhook事件 / Send message failed webhook event (已移除 / Removed)
-                                            // let message_id = Uuid::new_v4().to_string();
-                                            // service::webhook::send_message_webhook(
-                                            //     self,
-                                            //     &message_id,
-                                            //     client_id,
-                                            //     &None, // from_uid
-                                            //     &Some(target_uid.clone()),
-                                            //     &Some(target_uid.clone()),
-                                            //     &wk_msg.data,
-                                            //     "message",
-                                            //     "failed",
-                                            //     None,
-                                            // )
-                                            // .await;
                                             return Ok(());
                                         }
                                     }
@@ -817,24 +787,6 @@ impl VConnectIMServer {
 
                                     match delivery_result {
                                         Ok(_) => {
-                                            // 发送私聊消息送达Webhook事件 / Send private message delivered webhook event (已移除 / Removed)
-                                            // service::webhook::send_message_webhook(
-                                            //     self,
-                                            //     &message_id,
-                                            //     client_id,
-                                            //     &self
-                                            //         .connections
-                                            //         .get(client_id)
-                                            //         .and_then(|c| c.uid.clone()),
-                                            //     &None,
-                                            //     &Some(target_uid.clone()),
-                                            //     &wk_msg.data,
-                                            //     "private_message",
-                                            //     "delivered",
-                                            //     Some(chrono::Utc::now().timestamp_millis()),
-                                            // )
-                                            // .await;
-
                                             // 给发送者确认 / Confirm to sender
                                             let confirm_msg = ImMessage {
                                                 msg_type: "message_sent".to_string(),
@@ -869,20 +821,6 @@ impl VConnectIMServer {
                                             .await;
                                         }
                                         Err(_e) => {
-                                            // 发送私聊消息失败Webhook事件 / Send private message failed webhook event (已移除 / Removed)
-                                            // service::webhook::send_message_webhook(
-                                            //     self,
-                                            //     &message_id,
-                                            //     client_id,
-                                            //     &None, // from_uid
-                                            //     &Some(target_uid.clone()),
-                                            //     &Some(target_uid.clone()),
-                                            //     &wk_msg.data,
-                                            //     "private_message",
-                                            //     "failed",
-                                            //     None,
-                                            // )
-                                            // .await;
                                             return Ok(());
                                         }
                                     }
@@ -1294,182 +1232,6 @@ impl VConnectIMServer {
             Ok(true)
         }
     }
-
-    // /// 发送Webhook事件 / Send Webhook Event (已移除 / Removed)
-    // async fn send_webhook_event(&self, event_type: WebhookEventType, data: serde_json::Value) {
-    //     if let Some(webhook_config) = &self.webhook_config {
-    //         if !webhook_config.enabled {
-    //             return;
-    //         }
-    //
-    //         let event = WebhookEvent {
-    //             event_type: event_type.clone(),
-    //             event_id: Uuid::new_v4().to_string(),
-    //             timestamp: chrono::Utc::now().timestamp_millis(),
-    //             data,
-    //             retry_count: Some(0),
-    //         };
-    //
-    //         let webhook_config = webhook_config.clone();
-    //         tokio::spawn(async move {
-    //             if let Err(e) = Self::deliver_webhook_event(webhook_config, event).await {
-    //                 error!("❌ Failed to deliver webhook event: {}", e);
-    //             }
-    //         });
-    //     }
-    // }
-
-    // /// 交付Webhook事件到第三方服务器 / Deliver Webhook Event to Third-party Server (已移除 / Removed)
-    // async fn deliver_webhook_event(
-    //     webhook_config: crate::config::WebhookConfigLite,
-    //     event: WebhookEvent,
-    // ) -> Result<()> {
-    //     let client = reqwest::Client::builder()
-    //         .timeout(std::time::Duration::from_millis(webhook_config.timeout_ms))
-    //         .build()
-    //         .map_err(|e| anyhow::anyhow!("Failed to build HTTP client: {}", e))?;
-    //
-    //     let url = webhook_config
-    //         .url
-    //         .clone()
-    //         .ok_or_else(|| anyhow::anyhow!("Webhook url not configured"))?;
-    //     let mut request = client.post(url).json(&event);
-    //
-    //     // 添加签名头 / Add signature header if secret is configured
-    //     if let Some(secret) = &webhook_config.secret {
-    //         let signature = Self::generate_webhook_signature(&event, secret);
-    //         request = request.header("X-VConnectIM-Signature", signature);
-    //     }
-    //
-    //     let response = request
-    //         .send()
-    //         .await
-    //         .map_err(|e| anyhow::anyhow!("Webhook request failed: {}", e))?;
-    //
-    //     if response.status().is_success() {
-    //         info!("✅ Webhook event {} delivered successfully", event.event_id);
-    //         Ok(())
-    //     } else {
-    //         let status = response.status();
-    //         let body = response.text().await.unwrap_or_default();
-    //         Err(anyhow::anyhow!(
-    //             "Webhook delivery failed with status {}: {}",
-    //             status,
-    //             body
-    //         ))
-    //     }
-    // }
-
-    // /// 生成Webhook签名 / Generate Webhook Signature (已移除 / Removed)
-    // fn generate_webhook_signature(event: &WebhookEvent, secret: &str) -> String {
-    //     use std::collections::HashMap;
-    //
-    //     let mut data = HashMap::new();
-    //     data.insert("event_id", event.event_id.as_str());
-    //
-    //     let event_type_str = format!("{:?}", event.event_type);
-    //     data.insert("event_type", event_type_str.as_str());
-    //
-    //     let timestamp_str = event.timestamp.to_string();
-    //     data.insert("timestamp", timestamp_str.as_str());
-    //
-    //     let payload = serde_json::to_string(&data).unwrap_or_default();
-    //
-    //     use hmac::{Hmac, Mac};
-    //     use sha2::Sha256;
-    //
-    //     type HmacSha256 = Hmac<Sha256>;
-    //
-    //     let mut mac =
-    //         HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
-    //     mac.update(payload.as_bytes());
-    //
-    //     let result = mac.finalize();
-    //     let code_bytes = result.into_bytes();
-    //
-    //     format!("sha256={}", hex::encode(code_bytes))
-    // }
-
-    // /// 发送客户端上线Webhook事件 / Send Client Online Webhook Event (已移除 / Removed)
-    // #[allow(dead_code)]
-    // async fn send_client_online_webhook(
-    //     &self,
-    //     client_id: &str,
-    //     uid: &Option<String>,
-    //     addr: &SocketAddr,
-    // ) {
-    //     let data = serde_json::json!(WebhookClientStatusData {
-    //         client_id: client_id.to_string(),
-    //         uid: uid.clone(),
-    //         addr: addr.to_string(),
-    //         connected_at: Some(chrono::Utc::now().timestamp_millis()),
-    //         disconnected_at: None,
-    //         online_duration_ms: None,
-    //     });
-    //
-    //     self.send_webhook_event(WebhookEventType::ClientOnline, data)
-    //         .await;
-    // }
-
-    // /// 发送客户端离线Webhook事件 / Send Client Offline Webhook Event (已移除 / Removed)
-    // #[allow(dead_code)]
-    // async fn send_client_offline_webhook(
-    //     &self,
-    //     client_id: &str,
-    //     uid: &Option<String>,
-    //     addr: &SocketAddr,
-    //     connected_at: i64,
-    // ) {
-    //     let now = chrono::Utc::now().timestamp_millis();
-    //     let online_duration_ms = (now - connected_at).max(0) as u64;
-    //
-    //     let data = serde_json::json!(WebhookClientStatusData {
-    //         client_id: client_id.to_string(),
-    //         uid: uid.clone(),
-    //         addr: addr.to_string(),
-    //         connected_at: Some(connected_at),
-    //         disconnected_at: Some(now),
-    //         online_duration_ms: Some(online_duration_ms),
-    //     });
-    //
-    //     self.send_webhook_event(WebhookEventType::ClientOffline, data)
-    //         .await;
-    // }
-
-    // /// 发送消息Webhook事件 / Send Message Webhook Event (已移除 / Removed)
-    // async fn send_message_webhook(
-    //     &self,
-    //     message_id: &str,
-    //     from_client_id: &str,
-    //     from_uid: &Option<String>,
-    //     to_client_id: &Option<String>,
-    //     to_uid: &Option<String>,
-    //     content: &serde_json::Value,
-    //     message_type: &str,
-    //     delivery_status: &str,
-    //     delivered_at: Option<i64>,
-    // ) {
-    //     let data = serde_json::json!(WebhookMessageData {
-    //         message_id: message_id.to_string(),
-    //         from_client_id: from_client_id.to_string(),
-    //         from_uid: from_uid.clone(),
-    //         to_client_id: to_client_id.clone(),
-    //         to_uid: to_uid.clone(),
-    //         content: content.clone(),
-    //         message_type: message_type.to_string(),
-    //         timestamp: chrono::Utc::now().timestamp_millis(),
-    //         delivered_at,
-    //         delivery_status: delivery_status.to_string(),
-    //     });
-    //
-    //     let event_type = match delivery_status {
-    //         "delivered" => WebhookEventType::MessageDelivered,
-    //         "failed" => WebhookEventType::MessageFailed,
-    //         _ => WebhookEventType::MessageSent,
-    //     };
-    //
-    //     self.send_webhook_event(event_type, data).await;
-    // }
 } // impl VConnectIMServer 结束 / End of impl VConnectIMServer
 
 // 为IM服务器实现统一健康检查接口
@@ -1562,58 +1324,13 @@ async fn main() -> Result<()> {
     let auth_center_url: String = cm.get_or("auth.center_url", "http://127.0.0.1:8090".to_string());
     let auth_timeout_ms: u64 = cm.get_or("auth.timeout_ms", 1000_i64) as u64;
 
-    let webhook_url: Option<String> = cm.get::<String>("webhook.url").ok();
-    let webhook_timeout_ms: u64 = cm.get_or("webhook.timeout_ms", 3000000_i64) as u64;
-    let webhook_secret: Option<String> = cm.get::<String>("webhook.secret").ok();
-    let webhook_enabled: bool = cm.get_or("webhook.enabled", false);
     // 插件安装配置 / Plugin installation configuration
     let plugin_dir: String = cm.get_or("plugins.plugin_dir", "./plugins".to_string());
     let plugin_install_urls: Vec<String> =
         cm.get::<Vec<String>>("plugins.install").unwrap_or_default();
 
-    // Webhook配置 / Webhook Configuration
-    if webhook_enabled && webhook_url.is_some() {
-        info!("📡 Webhook Configuration:");
-        info!("   URL: {}", webhook_url.as_ref().unwrap());
-        info!("   Timeout: {}ms", webhook_timeout_ms);
-        info!(
-            "   Secret: {}",
-            if webhook_secret.is_some() {
-                "Configured"
-            } else {
-                "None"
-            }
-        );
-    } else {
-        info!("📡 Webhook: Disabled");
-    }
-
-    info!("");
-    info!("📖 WebSocket message types:");
-    info!("   - ping: Heartbeat (with automatic heartbeat tracking)");
-    info!("   - auth: Authentication");
-    info!("   - message: Send message with optional target_id");
-    info!("   - private_message: Send private message (requires target_id)");
-    info!("   - online_clients: Query online clients list");
-    info!("");
-    info!("💡 WebSocket examples:");
-    info!("   Ping: {{\"type\":\"ping\",\"data\":{{}}}}");
-    info!("   Auth: {{\"type\":\"auth\",\"data\":{{\"uid\":\"test\",\"token\":\"token\"}}}}");
-    info!("   Message: {{\"type\":\"message\",\"data\":{{\"content\":\"Hello\"}},\"target_id\":\"client_id\"}}");
-    info!("   Private: {{\"type\":\"private_message\",\"data\":{{\"content\":\"Hello\"}},\"target_id\":\"client_id\"}}");
-    info!("   Online Clients: {{\"type\":\"online_clients\",\"data\":{{}}}}");
-
-    // 创建服务器 / Create server (webhook 已移除 / webhook removed)
+    // 创建服务器 / Create server
     let mut server_builder = VConnectIMServer::new();
-    // if webhook_enabled && webhook_url.is_some() {
-    //     let webhook_config = crate::config::WebhookConfigLite {
-    //         url: Some(webhook_url.unwrap()),
-    //         timeout_ms: webhook_timeout_ms,
-    //         secret: webhook_secret,
-    //         enabled: true,
-    //     };
-    //     server_builder = server_builder.with_webhook_config(webhook_config);
-    // }
     if auth_enabled {
         let auth_cfg = crate::config::AuthConfigLite {
             enabled: auth_enabled,

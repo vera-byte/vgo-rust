@@ -1,10 +1,17 @@
+//! 插件客户端 - Protobuf 协议 / Plugin client - Protobuf protocol
+
 use anyhow::Result;
-use serde_json::Value;
+use prost::Message;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 use tokio::sync::watch;
 use tokio::time::{sleep, Duration};
 use tracing::{debug, error, info, warn};
+
+use super::protocol::{
+    negotiate_protocol, EventMessage, EventResponse, HandshakeRequest, HandshakeResponse,
+    ProtocolFormat,
+};
 
 /// 插件事件处理接口 / Plugin event handler interface
 pub trait PluginHandler {
@@ -18,15 +25,19 @@ pub trait PluginHandler {
     fn priority(&self) -> i32 {
         0
     }
+    /// 协议格式（仅支持 Protobuf）/ Protocol format (Protobuf only)
+    fn protocol(&self) -> ProtocolFormat {
+        ProtocolFormat::Protobuf
+    }
     /// 应用配置 / Apply configuration
-    fn config(&mut self, _cfg: &Value) -> Result<()> {
+    fn config(&mut self, _cfg: &str) -> Result<()> {
         Ok(())
     }
     /// 处理事件并返回响应 / Handle event and return response
-    fn on_event(&mut self, event_type: &str, payload: &Value) -> Result<Value>;
+    fn on_event(&mut self, event: &EventMessage) -> Result<EventResponse>;
 }
 
-/// 插件客户端（Unix Socket）/ Plugin client (Unix Socket)
+/// 插件客户端（Protobuf 协议）/ Plugin client (Protobuf protocol)
 pub struct PluginClient<H: PluginHandler> {
     socket_path: String,
     handler: H,
@@ -34,6 +45,7 @@ pub struct PluginClient<H: PluginHandler> {
     ident: String,                      // 插件标识（名称-版本）/ Plugin identifier (name-version)
     shutdown_tx: watch::Sender<bool>,   // 关闭信号发送器 / Shutdown signal sender
     shutdown_rx: watch::Receiver<bool>, // 关闭信号接收器 / Shutdown signal receiver
+    protocol: ProtocolFormat,           // 当前使用的协议 / Current protocol
 }
 
 impl<H: PluginHandler> PluginClient<H> {
@@ -41,8 +53,13 @@ impl<H: PluginHandler> PluginClient<H> {
     pub fn new(socket_path: impl Into<String>, handler: H) -> Self {
         let socket = socket_path.into();
         let ident = format!("{}-{}", handler.name(), handler.version());
-        // 初始化客户端并记录插件标识 / Initialize client and record plugin identifier
-        info!("[plugin:{}] init client, socket={}", ident, socket);
+        let protocol = handler.protocol();
+
+        info!(
+            "[plugin:{}] init client, socket={}, protocol={:?}",
+            ident, socket, protocol
+        );
+
         let (tx, rx) = watch::channel(false);
         Self {
             socket_path: socket,
@@ -51,6 +68,7 @@ impl<H: PluginHandler> PluginClient<H> {
             ident,
             shutdown_tx: tx,
             shutdown_rx: rx,
+            protocol,
         }
     }
 
@@ -178,26 +196,66 @@ impl<H: PluginHandler> PluginClient<H> {
 
     /// 发送握手信息 / Send handshake info
     async fn send_handshake(&mut self, stream: &mut UnixStream) -> Result<()> {
-        let info = serde_json::json!({
-            "name": self.handler.name(),
-            "version": self.handler.version(),
-            "capabilities": self.handler.capabilities(),
-            "priority": self.handler.priority(),
-        });
-        let bytes = serde_json::to_vec(&info)?;
+        let handshake = HandshakeRequest {
+            name: self.handler.name().to_string(),
+            version: self.handler.version().to_string(),
+            capabilities: self.handler.capabilities(),
+            priority: self.handler.priority(),
+            protocol: format!("{:?}", self.protocol).to_lowercase(),
+        };
+
+        // 使用 prost 编码握手消息 / Encode handshake using prost
+        let bytes = handshake.encode_to_vec();
+
+        // 发送消息 / Send message
         stream.write_u32(bytes.len() as u32).await?;
         stream.write_all(&bytes).await?;
         stream.flush().await?;
-        info!("[plugin:{}] handshake sent: {}", self.ident, info);
+
+        // 打印插件信息 / Print plugin info
+        info!("");
+        info!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        info!("🔌 Plugin Information / 插件信息");
+        info!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        info!("  Plugin ID      : {}", handshake.name);
+        info!("  Version        : {}", handshake.version);
+        info!("  Priority       : {}", handshake.priority);
+        info!("  Protocol       : {:?}", self.protocol);
+        info!("  Capabilities   : [{}]", handshake.capabilities.join(", "));
+        info!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        info!("");
+
+        // 读取响应 / Read response
         let resp_len = stream.read_u32().await?;
         let mut resp = vec![0u8; resp_len as usize];
         stream.read_exact(&mut resp).await?;
-        let resp_val: Value = serde_json::from_slice(&resp)?;
-        info!("[plugin:{}] handshake ack: {}", self.ident, resp_val);
-        if let Some(cfg) = resp_val.get("config") {
-            let _ = self.handler.config(cfg);
+
+        // 使用 prost 解码握手响应 / Decode handshake response using prost
+        let resp_val = HandshakeResponse::decode(resp.as_slice())?;
+
+        if resp_val.status == "ok" {
+            info!("✅ Handshake successful / 握手成功");
+
+            // 协议协商 / Protocol negotiation
+            if !resp_val.protocol.is_empty() {
+                let negotiated = negotiate_protocol(&resp_val.protocol);
+                if negotiated != self.protocol {
+                    info!(
+                        "🔄 Protocol negotiated: {:?} -> {:?}",
+                        self.protocol, negotiated
+                    );
+                    self.protocol = negotiated;
+                }
+            }
+        } else {
+            warn!("⚠️  Handshake response: {:?}", resp_val);
+        }
+
+        if !resp_val.config.is_empty() {
+            let _ = self.handler.config(&resp_val.config);
             debug!("[plugin:{}] config applied from handshake", self.ident);
         }
+
         Ok(())
     }
 
@@ -212,22 +270,31 @@ impl<H: PluginHandler> PluginClient<H> {
                     }
                 }
                 result = async {
+                    // 读取消息 / Read message
                     let len = stream.read_u32().await?;
                     let mut buffer = vec![0u8; len as usize];
                     stream.read_exact(&mut buffer).await?;
-                    let msg: Value = serde_json::from_slice(&buffer)?;
-                    let event_type = msg
-                        .get("event_type")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("unknown");
-                    let payload = msg.get("payload").cloned().unwrap_or(Value::Null);
-                    debug!("[plugin:{}] event: {} payload={}", self.ident, event_type, payload);
-                    let resp = self.handler.on_event(event_type, &payload)?;
-                    let resp_bytes = serde_json::to_vec(&resp)?;
+
+                    // 使用 prost 解码事件 / Decode event using prost
+                    let event = EventMessage::decode(buffer.as_slice())?;
+
+                    debug!(
+                        "[plugin:{}] event: {} (payload size: {} bytes)",
+                        self.ident, event.event_type, event.payload.len()
+                    );
+
+                    // 处理事件 / Handle event
+                    let response = self.handler.on_event(&event)?;
+
+                    // 使用 prost 编码响应 / Encode response using prost
+                    let resp_bytes = response.encode_to_vec();
+
+                    // 发送响应 / Send response
                     stream.write_u32(resp_bytes.len() as u32).await?;
                     stream.write_all(&resp_bytes).await?;
                     stream.flush().await?;
-                    debug!("[plugin:{}] response sent: {}", self.ident, resp);
+
+                    debug!("[plugin:{}] response sent", self.ident);
                     Ok::<(), anyhow::Error>(())
                 } => {
                     if let Err(e) = result {

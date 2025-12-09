@@ -1,0 +1,47 @@
+// 插件基础通信协议 / Plugin base communication protocol
+syntax = "proto3";
+
+package v.plugin.base;
+
+// ============================================================================
+// 握手消息 / Handshake Messages
+// ============================================================================
+
+// 握手请求 / Handshake request
+message HandshakeRequest {
+  string name = 1;                  // 插件名称 / Plugin name
+  string version = 2;               // 插件版本 / Plugin version
+  repeated string capabilities = 3; // 能力列表 / Capabilities
+  int32 priority = 4;               // 优先级 / Priority
+  string protocol = 5; // 支持的协议: "protobuf" / Supported protocol
+}
+
+// 握手响应 / Handshake response
+message HandshakeResponse {
+  string status = 1;   // 状态: "ok" 或 "error" / Status: "ok" or "error"
+  string message = 2;  // 可选的消息 / Optional message
+  string config = 3;   // 配置数据（JSON字符串）/ Config data (JSON string)
+  string protocol = 4; // 协商后的协议 / Negotiated protocol
+}
+
+// ============================================================================
+// 事件消息 / Event Messages
+// ============================================================================
+
+// 事件消息 / Event message
+message EventMessage {
+  string event_type = 1; // 事件类型 / Event type
+  bytes payload =
+      2; // 事件载荷（Protobuf 二进制）/ Event payload (Protobuf binary)
+  int64 timestamp = 3; // 时间戳（毫秒）/ Timestamp in milliseconds
+  string trace_id = 4; // 可选的追踪ID / Optional trace ID
+}
+
+// 事件响应 / Event response
+message EventResponse {
+  string status = 1; // 状态: "ok", "error" / Status
+  string flow = 2;   // 流控制: "continue", "stop" / Flow control
+  bytes data =
+      3; // 响应数据（Protobuf 二进制）/ Response data (Protobuf binary)
+  string error = 4; // 错误信息（如果有）/ Error message if any
+}

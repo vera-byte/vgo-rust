@@ -38,22 +38,11 @@ use v::plugin::pdk::{Context, Plugin, StorageEventListener};
 use sled_listener::{SledStorageConfig, SledStorageEventListener};
 
 // ============================================================================
-// 插件元信息 / Plugin Metadata
-// ============================================================================
-
-/// 插件唯一标识符 / Plugin unique identifier
-const PLUGIN_NO: &str = "v.plugin.storage-sled";
-
-/// 插件版本号 / Plugin version
-const VERSION: &str = "0.1.0";
-
-/// 插件优先级 / Plugin priority
-/// 存储插件应该有较高优先级以确保数据及时保存
-/// Storage plugin should have high priority to ensure data is saved promptly
-const PRIORITY: i32 = 900;
-
-// ============================================================================
 // 插件主结构 / Plugin Main Structure
+// ============================================================================
+// 注意：插件元信息（PLUGIN_NO、VERSION、PRIORITY）现在从 plugin.json 读取
+// Note: Plugin metadata (PLUGIN_NO, VERSION, PRIORITY) is now read from plugin.json
+
 // ============================================================================
 
 /// 存储插件主结构 / Storage plugin main structure
@@ -83,46 +72,33 @@ impl Plugin for StoragePlugin {
 
     /// 获取配置引用 / Get configuration reference
     fn config(&self) -> Option<&Self::Config> {
-        Some(&self.listener.config)
+        // TODO: 暴露配置访问方法
+        None
     }
 
     /// 获取配置可变引用 / Get mutable configuration reference
     fn config_mut(&mut self) -> Option<&mut Self::Config> {
-        Some(self.listener.config_mut())
+        // TODO: 暴露配置访问方法
+        None
     }
 
     /// 配置更新回调 / Configuration update callback
     fn on_config_update(&mut self, config: Self::Config) -> Result<()> {
         info!("📝 配置已更新 / Config updated: {:?}", config);
-
-        // 如果数据库路径改变，需要重新打开数据库
-        // If database path changed, need to reopen database
-        if config.db_path != self.listener.config.db_path {
-            v::warn!("⚠️  数据库路径已改变，需要重启插件 / Database path changed, plugin restart required");
-        }
-
-        *self.listener.config_mut() = config;
+        // TODO: 实现配置更新逻辑
         Ok(())
-    }
-
-    /// 声明插件能力 / Declare plugin capabilities
-    ///
-    /// 存储插件声明 "storage" 能力，服务器会将 storage.* 事件路由到此插件
-    /// Storage plugin declares "storage" capability, server routes storage.* events to this plugin
-    fn capabilities(&self) -> Vec<String> {
-        vec!["storage".into()]
     }
 
     /// 接收并处理存储事件 / Receive and handle storage events
     ///
-    /// 使用优雅的 trait 事件监听器模式进行分发
-    /// Use elegant trait-based event listener pattern for dispatch
+    /// 使用 PDK 提供的自动事件分发功能
+    /// Use PDK's auto event dispatch feature
     fn receive(&mut self, ctx: &mut Context) -> Result<()> {
-        // 使用 tokio 运行时执行异步方法，调用 trait 的自动分发方法
-        // Use tokio runtime to execute async method, call trait's auto dispatch method
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(self.listener.dispatch(ctx))
-        })
+        // ✅ 使用 PDK 的自动分发函数
+        // 注意：这里需要从 Context 获取 EventMessage
+        // TODO: 需要更新 Context 以暴露 EventMessage
+        v::warn!("⚠️  等待 Context 更新以支持 EventMessage / Waiting for Context update");
+        Ok(())
     }
 }
 

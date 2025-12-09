@@ -16,38 +16,65 @@ raft_async = ["async-raft"]
 quic = ["quiche"]
 
 [dependencies]
-tokio = { version = "1.0", features = ["full"] }
+# 核心依赖：从 v 导出 / Core dependencies: exported from v
+v = { path = "../v", features = ["protobuf"] }
+
+# 异步运行时和工具 / Async runtime and utilities
+tokio = { workspace = true }
+async-trait = { workspace = true }
 tokio-tungstenite = "0.20"
 futures-util = "0.3"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+
+# 序列化 / Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# 错误处理 / Error handling
+anyhow = { workspace = true }
+
+# 日志 / Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# 命令行 / CLI
+clap = { workspace = true }
+
+# 时间 / Time
+chrono = { workspace = true }
+
+# Protobuf / Protocol Buffers
+prost = { workspace = true }
+
+# 并发 / Concurrency
+parking_lot = { workspace = true }
+dashmap = { workspace = true }
+
+# 数据结构 / Data structures
 schemars = { version = "0.8" }
-clap = { version = "4.0", features = ["derive"] }
-anyhow = "1.0"
-tracing = "0.1"
-tracing-subscriber = "0.3"
-dashmap = "5.5"
-uuid = { version = "1.0", features = ["v4"] }
-chrono = "0.4"
-actix-web = "4"
+uuid = { workspace = true }
+
+# Web 框架 / Web framework
+actix-web = { workspace = true }
 reqwest = { version = "0.11", features = ["json"] }
+
+# 加密 / Cryptography
 hmac = "0.12"
 sha2 = "0.10"
 hex = "0.4"
-v = { path = "../v" }
-async-trait = "0.1"
-# sled = "0.34"  # 已迁移到存储插件 / Migrated to storage plugin
+
+# 可选功能 / Optional features
 async-raft = { version = "0.6", optional = true }
 quiche = { version = "0.17", optional = true }
-rand = "0.8"
-parking_lot = "0.12"
-tonic = { version = "0.11", features = ["prost"] }
-prost = "0.13"
-prost-types = "0.13"
-flate2 = "1.0"
-tar = "0.4"
 tempfile = { version = "3.8", optional = true }
 
+# 工具 / Utilities
+rand = "0.8"
+flate2 = "1.0"
+tar = "0.4"
+
+# gRPC (使用与 v 相同的版本) / gRPC (same version as v)
+tonic = { version = "0.11", features = ["prost"] }
+
 [build-dependencies]
-v = { path = "../v" }
+v = { workspace = true }
 tonic-build = { version = "0.11", features = ["prost"] }

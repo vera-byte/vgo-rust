@@ -1,0 +1,19 @@
+{
+    "plugin_no": "gateway",
+    "name": "v-connect-im-plugin-gateway",
+    "version": "0.1.0",
+    "priority": 100,
+    "description": "HTTP API Gateway plugin for v-connect-im (Protobuf)",
+    "author": "VGO Team",
+    "capabilities": [
+        "gateway.http_server",
+        "gateway.route_handler",
+        "gateway.api_proxy"
+    ],
+    "config": {
+        "host": "0.0.0.0",
+        "port": 8080,
+        "workers": 4,
+        "enable_openapi": true
+    }
+}

@@ -5,9 +5,11 @@ edition = "2021"
 
 
 [features]
-default = ["config", "web_actix"]
+default = ["config", "web_actix", "protobuf"]
 config = ["dep:config", "dep:lazy_static", "dep:serde", "dep:serde_json"]
 web_actix = ["dep:actix-web"]
+# 插件协议：仅支持 Protobuf / Plugin protocol: Protobuf only
+protobuf = ["dep:prost", "dep:prost-types"]
 
 [dependencies]
 # 以 feature 形式可选启用配置模块所需依赖（通过 dep: 前缀引用）
@@ -39,5 +41,11 @@ anyhow = "1"
 parking_lot = "0.12"
 clap = { version = "4.0", features = ["derive"] }
 utoipa = { version = "4.0", features = ["actix_extras"] }
+# Protobuf 支持 / Protobuf support
+prost = { version = "0.13", optional = true }
+prost-types = { version = "0.13", optional = true }
+
+[build-dependencies]
+prost-build = "0.13"
 
 [dev-dependencies]

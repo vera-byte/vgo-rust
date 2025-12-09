@@ -1,0 +1,124 @@
+// 存储插件协议 / Storage plugin protocol
+syntax = "proto3";
+
+package v.plugin.storage;
+
+// ============================================================================
+// 消息存储 / Message Storage
+// ============================================================================
+
+// 保存消息请求 / Save message request
+message SaveMessageRequest {
+  string message_id = 1; // 消息ID / Message ID
+  string from_uid = 2;   // 发送者UID / Sender UID
+  string to_uid = 3;     // 接收者UID / Receiver UID
+  string content = 4;    // 消息内容 / Message content
+  int64 timestamp = 5;   // 时间戳 / Timestamp
+  string msg_type = 6;   // 消息类型 / Message type
+}
+
+// 保存消息响应 / Save message response
+message SaveMessageResponse {
+  string status = 1;     // 状态 / Status
+  string message_id = 2; // 消息ID / Message ID
+}
+
+// ============================================================================
+// 离线消息 / Offline Messages
+// ============================================================================
+
+// 保存离线消息请求 / Save offline message request
+message SaveOfflineMessageRequest {
+  string message_id = 1; // 消息ID / Message ID
+  string to_uid = 2;     // 接收者UID / Receiver UID
+  string from_uid = 3;   // 发送者UID / Sender UID
+  string content = 4;    // 消息内容 / Message content
+  int64 timestamp = 5;   // 时间戳 / Timestamp
+}
+
+// 保存离线消息响应 / Save offline message response
+message SaveOfflineMessageResponse {
+  string status = 1;     // 状态 / Status
+  string message_id = 2; // 消息ID / Message ID
+}
+
+// 离线消息 / Offline message
+message OfflineMessage {
+  string message_id = 1; // 消息ID / Message ID
+  string from_uid = 2;   // 发送者UID / Sender UID
+  string content = 3;    // 消息内容 / Message content
+  int64 timestamp = 4;   // 时间戳 / Timestamp
+}
+
+// 拉取离线消息请求 / Pull offline messages request
+message PullOfflineMessagesRequest {
+  string uid = 1;  // 用户UID / User UID
+  int32 limit = 2; // 限制数量 / Limit count
+}
+
+// 拉取离线消息响应 / Pull offline messages response
+message PullOfflineMessagesResponse {
+  string status = 1;                    // 状态 / Status
+  repeated OfflineMessage messages = 2; // 消息列表 / Message list
+  int32 total = 3;                      // 总数 / Total count
+}
+
+// 确认离线消息请求 / Acknowledge offline messages request
+message AckOfflineMessagesRequest {
+  string uid = 1;                  // 用户UID / User UID
+  repeated string message_ids = 2; // 消息ID列表 / Message ID list
+}
+
+// 确认离线消息响应 / Acknowledge offline messages response
+message AckOfflineMessagesResponse {
+  string status = 1; // 状态 / Status
+  int32 count = 2;   // 确认数量 / Acknowledged count
+}
+
+// 统计离线消息请求 / Count offline messages request
+message CountOfflineMessagesRequest {
+  string uid = 1; // 用户UID / User UID
+}
+
+// 统计离线消息响应 / Count offline messages response
+message CountOfflineMessagesResponse {
+  string status = 1; // 状态 / Status
+  int32 count = 2;   // 消息数量 / Message count
+}
+
+// ============================================================================
+// 房间管理 / Room Management
+// ============================================================================
+
+// 添加房间成员请求 / Add room member request
+message AddRoomMemberRequest {
+  string room_id = 1; // 房间ID / Room ID
+  string uid = 2;     // 用户UID / User UID
+}
+
+// 添加房间成员响应 / Add room member response
+message AddRoomMemberResponse {
+  string status = 1; // 状态 / Status
+}
+
+// 移除房间成员请求 / Remove room member request
+message RemoveRoomMemberRequest {
+  string room_id = 1; // 房间ID / Room ID
+  string uid = 2;     // 用户UID / User UID
+}
+
+// 移除房间成员响应 / Remove room member response
+message RemoveRoomMemberResponse {
+  string status = 1; // 状态 / Status
+}
+
+// 获取房间成员请求 / Get room members request
+message GetRoomMembersRequest {
+  string room_id = 1; // 房间ID / Room ID
+}
+
+// 获取房间成员响应 / Get room members response
+message GetRoomMembersResponse {
+  string status = 1;           // 状态 / Status
+  repeated string members = 2; // 成员列表 / Member list
+}

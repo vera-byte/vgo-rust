@@ -4,8 +4,7 @@
 [workspace]
 members = [
     "v-connect-im-plugin-storage-sled",  # Sled存储插件 / Sled storage plugin
-    # 未来可以添加更多插件 / More plugins can be added here
-    # "v-connect-im-plugin-xxx",
+    "v-connect-im-plugin-gateway",
 ]
 
 resolver = "2"

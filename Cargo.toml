@@ -15,6 +15,7 @@ members = [
     
     # 插件中心 / Plugin hub
     "v-plugins-hub/v-connect-im-plugin-storage-sled",  # Sled存储插件 / Sled storage plugin
+    "v-plugins-hub/v-connect-im-plugin-gateway",  # 网关插件 / Gateway plugin
     # 添加新插件时在此处添加 / Add new plugins here
 ]
 
@@ -37,7 +38,35 @@ tokio = { version = "1", features = ["full"] }
 
 # 错误处理 / Error handling
 anyhow = "1"
+thiserror = "2"
 
 # 序列化 / Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# 异步 trait / Async trait
+async-trait = "0.1"
+
+# 日志 / Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+
+# Web框架 / Web framework
+actix-web = "4"
+
+# 时间处理 / Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# UUID / UUID
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Protobuf / Protocol Buffers
+prost = "0.13"
+prost-types = "0.13"
+
+# 命令行参数 / CLI arguments
+clap = { version = "4.0", features = ["derive"] }
+
+# 并发数据结构 / Concurrent data structures
+parking_lot = "0.12"
+dashmap = "5.5"

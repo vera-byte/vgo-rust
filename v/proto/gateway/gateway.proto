@@ -1,0 +1,111 @@
+// 网关插件协议 / Gateway plugin protocol
+syntax = "proto3";
+
+package v.plugin.gateway;
+
+// ============================================================================
+// HTTP 请求/响应 / HTTP Request/Response
+// ============================================================================
+
+// HTTP 请求 / HTTP request
+message HttpRequest {
+  string method = 1;               // HTTP 方法 / HTTP method (GET, POST, etc.)
+  string path = 2;                 // 请求路径 / Request path
+  map<string, string> headers = 3; // 请求头 / Request headers
+  bytes body = 4;                  // 请求体 / Request body
+  map<string, string> query_params = 5; // 查询参数 / Query parameters
+  string remote_addr = 6;               // 客户端地址 / Client address
+}
+
+// HTTP 响应 / HTTP response
+message HttpResponse {
+  int32 status_code = 1;           // HTTP 状态码 / HTTP status code
+  map<string, string> headers = 2; // 响应头 / Response headers
+  bytes body = 3;                  // 响应体 / Response body
+}
+
+// ============================================================================
+// 路由管理 / Route Management
+// ============================================================================
+
+// 注册路由请求 / Register route request
+message RegisterRouteRequest {
+  string path = 1;    // 路由路径 / Route path
+  string method = 2;  // HTTP 方法 / HTTP method
+  string handler = 3; // 处理器名称 / Handler name
+  int32 priority = 4; // 优先级 / Priority
+}
+
+// 注册路由响应 / Register route response
+message RegisterRouteResponse {
+  string status = 1;   // 状态 / Status
+  string route_id = 2; // 路由ID / Route ID
+}
+
+// 注销路由请求 / Unregister route request
+message UnregisterRouteRequest {
+  string route_id = 1; // 路由ID / Route ID
+}
+
+// 注销路由响应 / Unregister route response
+message UnregisterRouteResponse {
+  string status = 1; // 状态 / Status
+}
+
+// ============================================================================
+// API 代理 / API Proxy
+// ============================================================================
+
+// API 代理请求 / API proxy request
+message ProxyRequest {
+  string target_url = 1;           // 目标URL / Target URL
+  string method = 2;               // HTTP 方法 / HTTP method
+  map<string, string> headers = 3; // 请求头 / Request headers
+  bytes body = 4;                  // 请求体 / Request body
+  int32 timeout_ms = 5;            // 超时时间（毫秒）/ Timeout in milliseconds
+}
+
+// API 代理响应 / API proxy response
+message ProxyResponse {
+  string status = 1;               // 状态 / Status
+  int32 status_code = 2;           // HTTP 状态码 / HTTP status code
+  map<string, string> headers = 3; // 响应头 / Response headers
+  bytes body = 4;                  // 响应体 / Response body
+  int32 duration_ms = 5; // 请求耗时（毫秒）/ Request duration in milliseconds
+}
+
+// ============================================================================
+// 健康检查 / Health Check
+// ============================================================================
+
+// 健康检查请求 / Health check request
+message HealthCheckRequest {
+  string service = 1; // 服务名称 / Service name
+}
+
+// 健康检查响应 / Health check response
+message HealthCheckResponse {
+  string status = 1;        // 状态 / Status
+  bool healthy = 2;         // 是否健康 / Is healthy
+  string message = 3;       // 消息 / Message
+  int64 uptime_seconds = 4; // 运行时间（秒）/ Uptime in seconds
+}
+
+// ============================================================================
+// WebSocket 消息 / WebSocket Message
+// ============================================================================
+
+// WebSocket 消息 / WebSocket message
+message WebSocketMessage {
+  string connection_id = 1; // 连接ID / Connection ID
+  string message_type =
+      2;          // 消息类型 / Message type (text, binary, ping, pong, close)
+  bytes data = 3; // 消息数据 / Message data
+}
+
+// WebSocket 响应 / WebSocket response
+message WebSocketResponse {
+  string status = 1;       // 状态 / Status
+  string message_type = 2; // 消息类型 / Message type
+  bytes data = 3;          // 响应数据 / Response data
+}

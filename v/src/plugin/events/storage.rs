@@ -6,7 +6,13 @@
 use anyhow::Result;
 use async_trait::async_trait;
 
-use crate::plugin::pdk::Context;
+use crate::plugin::protocol::{
+    AckOfflineMessagesRequest, AckOfflineMessagesResponse, AddRoomMemberRequest,
+    AddRoomMemberResponse, CountOfflineMessagesRequest, CountOfflineMessagesResponse,
+    GetRoomMembersRequest, GetRoomMembersResponse, PullOfflineMessagesRequest,
+    PullOfflineMessagesResponse, RemoveRoomMemberRequest, RemoveRoomMemberResponse,
+    SaveMessageRequest, SaveMessageResponse, SaveOfflineMessageRequest, SaveOfflineMessageResponse,
+};
 
 // ============================================================================
 // 存储事件监听器 Trait / Storage Event Listener Trait
@@ -20,7 +26,8 @@ use crate::plugin::pdk::Context;
 /// # 使用示例 / Usage Example
 ///
 /// ```ignore
-/// use v::plugin::pdk::{Context, StorageEventListener};
+/// use v::plugin::pdk::StorageEventListener;
+/// use v::plugin::protocol::*;
 /// use async_trait::async_trait;
 ///
 /// pub struct MyStorageListener {
@@ -29,9 +36,12 @@ use crate::plugin::pdk::Context;
 ///
 /// #[async_trait]
 /// impl StorageEventListener for MyStorageListener {
-///     async fn storage_message_save(&mut self, ctx: &mut Context) -> Result<()> {
-///         // 你的实现
-///         Ok(())
+///     async fn storage_message_save(&mut self, req: &SaveMessageRequest) -> Result<SaveMessageResponse> {
+///         // 类型安全的实现
+///         Ok(SaveMessageResponse {
+///             status: "ok".to_string(),
+///             message_id: req.message_id.clone(),
+///         })
 ///     }
 ///     // ... 实现其他方法
 /// }
@@ -41,148 +51,96 @@ pub trait StorageEventListener: Send + Sync {
     /// 保存消息到持久化存储 / Save message to persistent storage
     ///
     /// # 参数 / Parameters
-    /// - `ctx`: 插件上下文，包含消息数据 / Plugin context containing message data
+    /// - `req`: 保存消息请求 / Save message request
     ///
     /// # 返回 / Returns
-    /// - `Result<()>`: 成功或错误 / Success or error
-    async fn storage_message_save(&mut self, ctx: &mut Context) -> Result<()>;
+    /// - `Result<SaveMessageResponse>`: 保存消息响应 / Save message response
+    async fn storage_message_save(
+        &mut self,
+        req: &SaveMessageRequest,
+    ) -> Result<SaveMessageResponse>;
 
     /// 保存离线消息 / Save offline message
     ///
     /// # 参数 / Parameters
-    /// - `ctx`: 插件上下文，包含离线消息数据 / Plugin context containing offline message data
+    /// - `req`: 保存离线消息请求 / Save offline message request
     ///
     /// # 返回 / Returns
-    /// - `Result<()>`: 成功或错误 / Success or error
-    async fn storage_offline_save(&mut self, ctx: &mut Context) -> Result<()>;
+    /// - `Result<SaveOfflineMessageResponse>`: 保存离线消息响应 / Save offline message response
+    async fn storage_offline_save(
+        &mut self,
+        req: &SaveOfflineMessageRequest,
+    ) -> Result<SaveOfflineMessageResponse>;
 
     /// 拉取用户的离线消息 / Pull user's offline messages
     ///
     /// # 参数 / Parameters
-    /// - `ctx`: 插件上下文，包含用户ID和拉取限制 / Plugin context containing user ID and limit
+    /// - `req`: 拉取离线消息请求 / Pull offline messages request
     ///
     /// # 返回 / Returns
-    /// - `Result<()>`: 成功或错误 / Success or error
-    async fn storage_offline_pull(&mut self, ctx: &mut Context) -> Result<()>;
+    /// - `Result<PullOfflineMessagesResponse>`: 拉取离线消息响应 / Pull offline messages response
+    async fn storage_offline_pull(
+        &mut self,
+        req: &PullOfflineMessagesRequest,
+    ) -> Result<PullOfflineMessagesResponse>;
 
     /// 确认离线消息已读 / Acknowledge offline messages as read
     ///
     /// # 参数 / Parameters
-    /// - `ctx`: 插件上下文，包含消息ID列表 / Plugin context containing message ID list
+    /// - `req`: 确认离线消息请求 / Acknowledge offline messages request
     ///
     /// # 返回 / Returns
-    /// - `Result<()>`: 成功或错误 / Success or error
-    async fn storage_offline_ack(&mut self, ctx: &mut Context) -> Result<()>;
+    /// - `Result<AckOfflineMessagesResponse>`: 确认离线消息响应 / Acknowledge offline messages response
+    async fn storage_offline_ack(
+        &mut self,
+        req: &AckOfflineMessagesRequest,
+    ) -> Result<AckOfflineMessagesResponse>;
 
     /// 统计用户的离线消息数量 / Count user's offline messages
     ///
     /// # 参数 / Parameters
-    /// - `ctx`: 插件上下文，包含用户ID / Plugin context containing user ID
+    /// - `req`: 统计离线消息请求 / Count offline messages request
     ///
     /// # 返回 / Returns
-    /// - `Result<()>`: 成功或错误 / Success or error
-    async fn storage_offline_count(&mut self, ctx: &mut Context) -> Result<()>;
+    /// - `Result<CountOfflineMessagesResponse>`: 统计离线消息响应 / Count offline messages response
+    async fn storage_offline_count(
+        &mut self,
+        req: &CountOfflineMessagesRequest,
+    ) -> Result<CountOfflineMessagesResponse>;
 
     /// 添加房间成员 / Add room member
     ///
     /// # 参数 / Parameters
-    /// - `ctx`: 插件上下文，包含房间ID和用户ID / Plugin context containing room ID and user ID
+    /// - `req`: 添加房间成员请求 / Add room member request
     ///
     /// # 返回 / Returns
-    /// - `Result<()>`: 成功或错误 / Success or error
-    async fn storage_room_add_member(&mut self, ctx: &mut Context) -> Result<()>;
+    /// - `Result<AddRoomMemberResponse>`: 添加房间成员响应 / Add room member response
+    async fn storage_room_add_member(
+        &mut self,
+        req: &AddRoomMemberRequest,
+    ) -> Result<AddRoomMemberResponse>;
 
     /// 移除房间成员 / Remove room member
     ///
     /// # 参数 / Parameters
-    /// - `ctx`: 插件上下文，包含房间ID和用户ID / Plugin context containing room ID and user ID
+    /// - `req`: 移除房间成员请求 / Remove room member request
     ///
     /// # 返回 / Returns
-    /// - `Result<()>`: 成功或错误 / Success or error
-    async fn storage_room_remove_member(&mut self, ctx: &mut Context) -> Result<()>;
+    /// - `Result<RemoveRoomMemberResponse>`: 移除房间成员响应 / Remove room member response
+    async fn storage_room_remove_member(
+        &mut self,
+        req: &RemoveRoomMemberRequest,
+    ) -> Result<RemoveRoomMemberResponse>;
 
     /// 列出房间的所有成员 / List all members of a room
     ///
     /// # 参数 / Parameters
-    /// - `ctx`: 插件上下文，包含房间ID / Plugin context containing room ID
+    /// - `req`: 获取房间成员请求 / Get room members request
     ///
     /// # 返回 / Returns
-    /// - `Result<()>`: 成功或错误 / Success or error
-    async fn storage_room_list_members(&mut self, ctx: &mut Context) -> Result<()>;
-
-    /// 列出所有房间 / List all rooms
-    ///
-    /// # 参数 / Parameters
-    /// - `ctx`: 插件上下文 / Plugin context
-    ///
-    /// # 返回 / Returns
-    /// - `Result<()>`: 成功或错误 / Success or error
-    async fn storage_room_list(&mut self, ctx: &mut Context) -> Result<()>;
-
-    /// 记录消息已读回执 / Record message read receipt
-    ///
-    /// # 参数 / Parameters
-    /// - `ctx`: 插件上下文，包含用户ID和消息ID / Plugin context containing user ID and message ID
-    ///
-    /// # 返回 / Returns
-    /// - `Result<()>`: 成功或错误 / Success or error
-    async fn storage_read_record(&mut self, ctx: &mut Context) -> Result<()>;
-
-    /// 查询历史消息 / Query message history
-    ///
-    /// # 参数 / Parameters
-    /// - `ctx`: 插件上下文，包含查询条件 / Plugin context containing query conditions
-    ///
-    /// # 返回 / Returns
-    /// - `Result<()>`: 成功或错误 / Success or error
-    async fn storage_message_history(&mut self, ctx: &mut Context) -> Result<()>;
-
-    /// 获取存储统计信息 / Get storage statistics
-    ///
-    /// # 参数 / Parameters
-    /// - `ctx`: 插件上下文 / Plugin context
-    ///
-    /// # 返回 / Returns
-    /// - `Result<()>`: 成功或错误 / Success or error
-    async fn storage_stats(&mut self, ctx: &mut Context) -> Result<()>;
-
-    /// 自动事件分发 / Auto event dispatch
-    ///
-    /// 根据事件类型自动调用对应的处理方法
-    /// Automatically calls the corresponding handler method based on event type
-    ///
-    /// # 参数 / Parameters
-    /// - `ctx`: 插件上下文 / Plugin context
-    ///
-    /// # 返回 / Returns
-    /// - `Result<()>`: 成功或错误 / Success or error
-    async fn dispatch(&mut self, ctx: &mut Context) -> Result<()> {
-        let event_type = ctx.event_type();
-
-        match event_type {
-            "storage.message.save" => self.storage_message_save(ctx).await,
-            "storage.offline.save" => self.storage_offline_save(ctx).await,
-            "storage.offline.pull" => self.storage_offline_pull(ctx).await,
-            "storage.offline.ack" => self.storage_offline_ack(ctx).await,
-            "storage.offline.count" => self.storage_offline_count(ctx).await,
-            "storage.room.add_member" => self.storage_room_add_member(ctx).await,
-            "storage.room.remove_member" => self.storage_room_remove_member(ctx).await,
-            "storage.room.list_members" => self.storage_room_list_members(ctx).await,
-            "storage.room.list" => self.storage_room_list(ctx).await,
-            "storage.read.record" => self.storage_read_record(ctx).await,
-            "storage.message.history" => self.storage_message_history(ctx).await,
-            "storage.stats" => self.storage_stats(ctx).await,
-            _ => {
-                crate::warn!(
-                    "⚠️  未知的存储事件类型 / Unknown storage event type: {}",
-                    event_type
-                );
-                ctx.reply(serde_json::json!({
-                    "status": "error",
-                    "message": format!("Unknown event type: {}", event_type)
-                }))?;
-                Ok(())
-            }
-        }
-    }
+    /// - `Result<GetRoomMembersResponse>`: 获取房间成员响应 / Get room members response
+    async fn storage_room_list_members(
+        &mut self,
+        req: &GetRoomMembersRequest,
+    ) -> Result<GetRoomMembersResponse>;
 }

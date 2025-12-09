@@ -6,6 +6,8 @@ trigger: always_on
 代码写上双文注释(中文，英文)
 你是一位精通Rust、异步编程和并发系统的专家。
 项目文档使用Mintlify(文档目录/Users/mac/workspace/vgo-rust/docs)
+插件传输数据使用proto
+proto文件需按照归类存放(业务proto和握手proto分离)
 
 
 项目工程结构介绍
@@ -16,6 +18,8 @@ trigger: always_on
 - v-admin-vue 管理后台前端项目(基于Vue3 + ElementPlus + TypeScript)
 - v-connect-im 即时通讯服务(rust)
 - v-plugins-hub 插件中心(包含多个插件项目工程)
+- - v-connect-im-plugin-storage-sled 存储插件
+- - v-connect-im-plugin-gateway 网关插件
 
 项目特性规则
 - 所有服务应依赖于公共工具库(v)，并在`Cargo.toml`中声明依赖。

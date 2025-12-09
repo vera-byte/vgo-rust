@@ -2,6 +2,7 @@
 
 pub mod event_bus;
 pub mod installer;
+pub mod protocol_handler;
 pub mod runtime;
 pub mod v_adapters;
 
