@@ -56,6 +56,27 @@ impl Default for SledStorageConfig {
     }
 }
 
+impl SledStorageConfig {
+    /// 验证配置有效性 / Validate configuration
+    pub fn validate(&self) -> Result<()> {
+        if self.db_path.is_empty() {
+            anyhow::bail!("db_path 不能为空 / db_path cannot be empty");
+        }
+
+        if self.max_offline_messages == 0 {
+            anyhow::bail!(
+                "max_offline_messages 必须大于 0 / max_offline_messages must be greater than 0"
+            );
+        }
+
+        if self.max_offline_messages > 1_000_000 {
+            warn!("⚠️  max_offline_messages 过大可能影响性能 / Large max_offline_messages may affect performance: {}", self.max_offline_messages);
+        }
+
+        Ok(())
+    }
+}
+
 // ============================================================================
 // 统计信息 / Statistics
 // ============================================================================
@@ -86,7 +107,7 @@ pub struct SledStorageEventListener {
     /// 房间成员树 / Room members tree
     rooms: sled::Tree,
     /// 配置 / Configuration
-    config: SledStorageConfig,
+    pub config: SledStorageConfig,
     /// 统计信息 / Statistics
     stats: StorageStats,
 }

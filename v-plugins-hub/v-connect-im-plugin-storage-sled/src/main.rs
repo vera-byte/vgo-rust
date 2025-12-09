@@ -33,83 +33,44 @@ mod sled_listener;
 
 use anyhow::Result;
 use v::info;
-use v::plugin::pdk::{Context, Plugin, StorageEventListener};
+use v::plugin::pdk::run_storage_server;
 
 use sled_listener::{SledStorageConfig, SledStorageEventListener};
 
-// ============================================================================
-// 插件主结构 / Plugin Main Structure
 // ============================================================================
 // 注意：插件元信息（PLUGIN_NO、VERSION、PRIORITY）现在从 plugin.json 读取
 // Note: Plugin metadata (PLUGIN_NO, VERSION, PRIORITY) is now read from plugin.json
 
 // ============================================================================
-
-/// 存储插件主结构 / Storage plugin main structure
-///
-/// 使用组合模式，将具体的存储实现委托给 `SledStorageEventListener`
-/// Uses composition pattern, delegates concrete storage implementation to `SledStorageEventListener`
-struct StoragePlugin {
-    /// 存储事件监听器 / Storage event listener
-    listener: SledStorageEventListener,
-}
-
-impl Plugin for StoragePlugin {
-    type Config = SledStorageConfig;
-
-    /// 创建新的存储插件实例 / Create new storage plugin instance
-    fn new() -> Self {
-        info!("🗄️  初始化存储插件 / Initializing Storage Plugin");
-
-        let config = SledStorageConfig::default();
-        let listener = SledStorageEventListener::new(config)
-            .expect("无法创建存储监听器 / Failed to create storage listener");
-
-        info!("✅ 存储插件初始化完成 / Storage Plugin initialized");
-
-        Self { listener }
-    }
-
-    /// 获取配置引用 / Get configuration reference
-    fn config(&self) -> Option<&Self::Config> {
-        // TODO: 暴露配置访问方法
-        None
-    }
-
-    /// 获取配置可变引用 / Get mutable configuration reference
-    fn config_mut(&mut self) -> Option<&mut Self::Config> {
-        // TODO: 暴露配置访问方法
-        None
-    }
-
-    /// 配置更新回调 / Configuration update callback
-    fn on_config_update(&mut self, config: Self::Config) -> Result<()> {
-        info!("📝 配置已更新 / Config updated: {:?}", config);
-        // TODO: 实现配置更新逻辑
-        Ok(())
-    }
-
-    /// 接收并处理存储事件 / Receive and handle storage events
-    ///
-    /// 使用 PDK 提供的自动事件分发功能
-    /// Use PDK's auto event dispatch feature
-    fn receive(&mut self, ctx: &mut Context) -> Result<()> {
-        // ✅ 使用 PDK 的自动分发函数
-        // 注意：这里需要从 Context 获取 EventMessage
-        // TODO: 需要更新 Context 以暴露 EventMessage
-        v::warn!("⚠️  等待 Context 更新以支持 EventMessage / Waiting for Context update");
-        Ok(())
-    }
-}
+// 注意：不再需要 StoragePlugin 结构和 Plugin trait 实现
+// Note: No longer need StoragePlugin struct and Plugin trait implementation
+// 直接使用 SledStorageEventListener + run_storage_server
+// Directly use SledStorageEventListener + run_storage_server
+// ============================================================================
 
 // ============================================================================
 // 程序入口 / Program Entry Point
 // ============================================================================
 
 /// 存储插件程序入口点 / Storage plugin program entry point
+///
+/// 使用新的 run_storage_server 函数，不需要实现 Plugin trait
+/// Use new run_storage_server function, no need to implement Plugin trait
 #[tokio::main]
 async fn main() -> Result<()> {
-    // 启动存储插件服务器 / Start storage plugin server
-    // 插件元信息从 plugin.json 自动读取 / Plugin metadata is automatically read from plugin.json
-    v::plugin::pdk::run_server::<StoragePlugin>().await
+    info!("🗄️  启动存储插件 / Starting Storage Plugin");
+
+    // 使用专门的存储插件运行器 / Use dedicated storage plugin runner
+    // 不需要 Plugin trait 和 Context，直接使用 StorageEventListener
+    // No need for Plugin trait and Context, directly use StorageEventListener
+    run_storage_server::<SledStorageEventListener, SledStorageConfig, _>(|config| {
+        info!("📝 使用配置 / Using config: {:?}", config);
+
+        // 验证配置 / Validate configuration
+        config.validate()?;
+
+        // 创建监听器 / Create listener
+        SledStorageEventListener::new(config)
+    })
+    .await
 }

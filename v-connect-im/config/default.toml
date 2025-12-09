@@ -40,7 +40,7 @@ peers = ""
 #     "https://github.com/WuKongIM/plugins/releases/download/latest/wk.plugin.ai-example-${os}-${arch}.wkp"
 # ]
 #install = [
-#    "file://Users/mac/workspace/vgo-rust/dist/plugins/v-connect-im-plugin-storage-sled-0.1.0-darwin-arm64.vp",
+#    "file:///Users/mac/workspace/vgo-rust/dist/plugins/v-connect-im-plugin-storage-sled-0.0.0-darwin-arm64.vp",
 #]
 # 插件存储目录 / Plugin storage directory
 plugin_dir = "./plugins"

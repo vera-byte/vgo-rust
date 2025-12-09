@@ -1,41 +1,4 @@
 //! 插件开发工具包 / Plugin Development Kit (PDK)
-//!
-//! 提供类似 Go pdk 的插件开发体验
-//! Provides Go pdk-like plugin development experience
-//!
-//! # 用法 / Usage
-//!
-//! ```ignore
-//! use v::plugin::pdk::*;
-//!
-//! #[derive(Default, serde::Deserialize)]
-//! struct Config {
-//!     name: String,
-//! }
-//!
-//! struct AIExample {
-//!     config: Config,
-//! }
-//!
-//! impl Plugin for AIExample {
-//!     type Config = Config;
-//!
-//!     fn new() -> Self {
-//!         Self { config: Config::default() }
-//!     }
-//!
-//!     fn receive(&mut self, ctx: &mut Context) -> Result<()> {
-//!         let content = ctx.get_payload_str("content").unwrap_or_default();
-//!         ctx.reply(json!({
-//!             "type": 1,
-//!             "content": format!("我是{}, 收到您的消息: {}", self.config.name, content)
-//!         }))?;
-//!         Ok(())
-//!     }
-//! }
-//!
-//! v::run_plugin!(AIExample, "wk.plugin.ai-example", version = "0.1.0", priority = 1);
-//! ```
 
 use anyhow::Result;
 use clap::Parser;
@@ -480,6 +443,171 @@ pub async fn dispatch_storage_event(
             "Unknown storage event: {}",
             event.event_type
         )),
+    }
+}
+
+// ============================================================================
+// 存储插件专用运行器 / Storage Plugin Runner
+// ============================================================================
+
+/// 运行存储插件服务器 / Run storage plugin server
+///
+/// 专门为 StorageEventListener 设计的运行函数，不需要实现 Plugin trait
+/// Dedicated runner for StorageEventListener, no need to implement Plugin trait
+///
+/// # 类型参数 / Type Parameters
+///
+/// * `L` - 实现了 `StorageEventListener` trait 的监听器类型
+/// * `C` - 配置类型，必须实现 Default 和 DeserializeOwned
+///
+/// # 示例 / Example
+///
+/// ```no_run
+/// use v::plugin::pdk::{StorageEventListener, run_storage_server};
+///
+/// #[tokio::main]
+/// async fn main() -> anyhow::Result<()> {
+///     run_storage_server::<MyStorageListener, MyConfig>(
+///         |config| MyStorageListener::new(config)
+///     ).await
+/// }
+/// ```
+pub async fn run_storage_server<L, C, F>(create_listener: F) -> Result<()>
+where
+    L: StorageEventListener + 'static,
+    C: Default + DeserializeOwned,
+    F: FnOnce(C) -> Result<L>,
+{
+    // 读取 plugin.json 配置 / Read plugin.json configuration
+    let config_path = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|p| p.join("plugin.json")))
+        .unwrap_or_else(|| std::path::PathBuf::from("plugin.json"));
+
+    eprintln!("🔍 Reading plugin.json from: {:?}", config_path);
+
+    let config_content = std::fs::read_to_string(&config_path).map_err(|e| {
+        anyhow::anyhow!("Failed to read plugin.json: {}. Path: {:?}", e, config_path)
+    })?;
+
+    eprintln!("📄 plugin.json content:\n{}", config_content);
+
+    let plugin_config: PluginConfig = serde_json::from_str(&config_content)
+        .map_err(|e| anyhow::anyhow!("Failed to parse plugin.json: {}", e))?;
+
+    let plugin_no = plugin_config.plugin_no;
+    let version = plugin_config.version;
+    let priority = plugin_config.priority;
+    let args = PluginArgs::parse();
+
+    // 初始化日志 / Initialize logging
+    let log_level = if args.debug {
+        tracing::Level::DEBUG
+    } else {
+        match args.log_level.to_lowercase().as_str() {
+            "trace" => tracing::Level::TRACE,
+            "debug" => tracing::Level::DEBUG,
+            "info" => tracing::Level::INFO,
+            "warn" => tracing::Level::WARN,
+            "error" => tracing::Level::ERROR,
+            _ => tracing::Level::INFO,
+        }
+    };
+
+    tracing_subscriber::fmt()
+        .with_max_level(log_level)
+        .with_target(args.debug)
+        .with_thread_ids(args.debug)
+        .with_line_number(args.debug)
+        .init();
+
+    if args.debug {
+        info!("🐛 Debug mode enabled");
+    }
+    info!("📊 Log level: {:?}", log_level);
+
+    // 从插件编号提取名称 / Extract name from plugin number
+    let name = plugin_no
+        .strip_prefix("wk.plugin.")
+        .or_else(|| plugin_no.strip_prefix("v.plugin."))
+        .unwrap_or(&plugin_no);
+
+    let socket_path = args
+        .socket
+        .unwrap_or_else(|| format!("./plugins/{}.sock", name));
+
+    let protocol = crate::plugin::protocol::ProtocolFormat::Protobuf;
+
+    info!(
+        "🚀 {} v{} starting... (priority: {}, protocol: {:?})",
+        plugin_no, version, priority, protocol
+    );
+    info!("📡 Socket path: {}", socket_path);
+
+    // 创建监听器 / Create listener
+    let user_config = C::default();
+    let listener = create_listener(user_config)?;
+
+    let wrapper = StoragePluginWrapper {
+        listener: Box::new(listener),
+        name: Box::leak(plugin_no.into_boxed_str()),
+        version: Box::leak(version.into_boxed_str()),
+        priority,
+        capabilities: plugin_config.capabilities,
+        protocol,
+    };
+
+    let mut client = PluginClient::new(socket_path, wrapper);
+    client.run_forever_with_ctrlc().await
+}
+
+/// 存储插件包装器 / Storage plugin wrapper
+struct StoragePluginWrapper {
+    listener: Box<dyn StorageEventListener>,
+    name: &'static str,
+    version: &'static str,
+    priority: i32,
+    capabilities: Vec<String>,
+    protocol: crate::plugin::protocol::ProtocolFormat,
+}
+
+impl PluginHandler for StoragePluginWrapper {
+    fn name(&self) -> &'static str {
+        self.name
+    }
+
+    fn version(&self) -> &'static str {
+        self.version
+    }
+
+    fn capabilities(&self) -> Vec<String> {
+        self.capabilities.clone()
+    }
+
+    fn priority(&self) -> i32 {
+        self.priority
+    }
+
+    fn config(&mut self, _cfg: &str) -> Result<()> {
+        // 存储插件的配置通过构造函数传递，这里不处理
+        // Storage plugin config is passed via constructor, not handled here
+        Ok(())
+    }
+
+    fn on_event(
+        &mut self,
+        event: &crate::plugin::protocol::EventMessage,
+    ) -> Result<crate::plugin::protocol::EventResponse> {
+        // 使用 tokio 的 block_in_place 在同步上下文中运行异步代码
+        // Use tokio's block_in_place to run async code in sync context
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current()
+                .block_on(dispatch_storage_event(&mut *self.listener, event))
+        })
+    }
+
+    fn protocol(&self) -> crate::plugin::protocol::ProtocolFormat {
+        self.protocol
     }
 }
 
