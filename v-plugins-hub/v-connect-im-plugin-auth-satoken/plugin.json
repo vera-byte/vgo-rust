@@ -1,0 +1,11 @@
+{
+    "plugin_no": "v.plugin.auth-satoken",
+    "name": "v-connect-im-plugin-auth-satoken",
+    "version": "0.1.0",
+    "description": "SaToken authentication plugin for v-connect-im",
+    "author": "VGO Team",
+    "capabilities": [
+        "auth"
+    ],
+    "priority": 1000
+}

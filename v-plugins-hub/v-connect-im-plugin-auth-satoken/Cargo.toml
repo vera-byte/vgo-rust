@@ -1,0 +1,32 @@
+[package]
+name = "v-connect-im-plugin-auth-satoken"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "v-connect-im-plugin-auth-satoken"
+path = "src/main.rs"
+
+[dependencies]
+# 工作空间依赖 / Workspace dependencies
+v = { path = "../../v", features = ["protobuf"] }
+
+# 异步运行时 / Async runtime
+tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
+
+# 序列化 / Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# 错误处理 / Error handling
+anyhow = "1.0"
+
+# 日志 / Logging
+tracing = "0.1"
+
+# HTTP 客户端 / HTTP client
+reqwest = { version = "0.12", features = ["json"] }
+
+# 时间处理 / Time handling
+chrono = "0.4"

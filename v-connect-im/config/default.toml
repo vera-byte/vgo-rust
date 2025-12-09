@@ -6,7 +6,21 @@ timeout_ms = 200000
 enable_geo = true
 
 [auth]
+# 认证超时时间（毫秒）/ Authentication deadline (milliseconds)
 deadline_ms = 1500
+
+# 是否启用认证 / Enable authentication
+# 设置为 false 时，所有 token 都会通过验证（开发模式）
+# When set to false, all tokens will pass validation (development mode)
+enabled = false
+
+# 认证中心 URL / Authentication center URL
+# 用于验证 token 的远程服务地址
+# Remote service URL for token validation
+center_url = "http://127.0.0.1:8090"
+
+# 认证请求超时时间（毫秒）/ Authentication request timeout (milliseconds)
+timeout_ms = 1000
 
 [logging]
 level = "debug"

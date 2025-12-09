@@ -4,7 +4,8 @@
 [workspace]
 members = [
     "v-connect-im-plugin-storage-sled",  # Sled存储插件 / Sled storage plugin
-    "v-connect-im-plugin-gateway",
+    "v-connect-im-plugin-gateway",       # 网关插件 / Gateway plugin
+    "v-connect-im-plugin-auth-satoken",  # SaToken认证插件 / SaToken auth plugin
 ]
 
 resolver = "2"
@@ -16,6 +17,7 @@ v = { path = "../v" }
 
 # 异步运行时 / Async runtime
 tokio = { version = "1.0", features = ["full"] }
+async-trait = "0.1"
 
 # 错误处理 / Error handling
 anyhow = "1.0"
@@ -28,3 +30,22 @@ serde_json = "1.0"
 # 日志 / Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# HTTP 客户端 / HTTP client
+reqwest = { version = "0.12", features = ["json"] }
+
+# 时间处理 / Time handling
+chrono = "0.4"
+
+# 数据库 / Database
+sled = "0.34"
+
+# Protobuf / Protobuf
+prost = "0.13"
+
+# Web 框架 / Web framework
+actix-web = "4"
+actix-rt = "2"
+
+# UUID / UUID
+uuid = { version = "1", features = ["v4", "serde"] }

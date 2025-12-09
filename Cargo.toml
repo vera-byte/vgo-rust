@@ -16,6 +16,8 @@ members = [
     # 插件中心 / Plugin hub
     "v-plugins-hub/v-connect-im-plugin-storage-sled",  # Sled存储插件 / Sled storage plugin
     "v-plugins-hub/v-connect-im-plugin-gateway",  # 网关插件 / Gateway plugin
+    "v-plugins-hub/v-connect-im-plugin-auth-satoken",  # SaToken认证插件 / SaToken auth plugin
+
     # 添加新插件时在此处添加 / Add new plugins here
 ]
 

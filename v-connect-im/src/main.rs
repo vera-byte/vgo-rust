@@ -431,8 +431,38 @@ impl VConnectIMServer {
                                     .get("uid")
                                     .and_then(|v| v.as_str())
                                     .map(|s| s.to_string());
-                                // 简化认证：直接通过 / Simplified auth: always pass
-                                let is_valid = true;
+
+                                // 优先通过认证插件验证 / Prefer validation via auth plugin
+                                let is_valid = if let Some(pool) =
+                                    self.plugin_connection_pool.as_ref()
+                                {
+                                    // 调用认证插件验证 token / Call auth plugin to validate token
+                                    let auth_event = serde_json::json!({
+                                        "event_type": "auth.validate_token",
+                                        "token": token,
+                                        "client_id": client_id,
+                                    });
+
+                                    match pool.broadcast_message_event(&auth_event).await {
+                                        Ok(responses) => {
+                                            // 检查认证插件的响应 / Check auth plugin response
+                                            responses.iter().any(|(_, resp)| {
+                                                resp.get("status")
+                                                    .and_then(|s| s.as_str())
+                                                    .map(|s| s == "ok")
+                                                    .unwrap_or(false)
+                                            })
+                                        }
+                                        Err(e) => {
+                                            warn!("认证插件调用失败，回退到本地验证 / Auth plugin failed, fallback to local: {}", e);
+                                            // 回退到本地验证 / Fallback to local validation
+                                            self.validate_token(token).await.unwrap_or(false)
+                                        }
+                                    }
+                                } else {
+                                    // 没有插件系统，使用本地验证 / No plugin system, use local validation
+                                    self.validate_token(token).await.unwrap_or(false)
+                                };
                                 let auth_response = ImMessage {
                                     msg_type: "auth_response".to_string(),
                                     data: serde_json::json!({ "status": if is_valid {"success"} else {"failed"}, "message": if is_valid {"Authentication successful"} else {"Authentication failed"} }),

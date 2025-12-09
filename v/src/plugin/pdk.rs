@@ -447,37 +447,21 @@ pub async fn dispatch_storage_event(
 }
 
 // ============================================================================
-// 存储插件专用运行器 / Storage Plugin Runner
+// 通用插件运行器 / Generic Plugin Runner
 // ============================================================================
 
-/// 运行存储插件服务器 / Run storage plugin server
-///
-/// 专门为 StorageEventListener 设计的运行函数，不需要实现 Plugin trait
-/// Dedicated runner for StorageEventListener, no need to implement Plugin trait
-///
-/// # 类型参数 / Type Parameters
-///
-/// * `L` - 实现了 `StorageEventListener` trait 的监听器类型
-/// * `C` - 配置类型，必须实现 Default 和 DeserializeOwned
-///
-/// # 示例 / Example
-///
-/// ```no_run
-/// use v::plugin::pdk::{StorageEventListener, run_storage_server};
-///
-/// #[tokio::main]
-/// async fn main() -> anyhow::Result<()> {
-///     run_storage_server::<MyStorageListener, MyConfig>(
-///         |config| MyStorageListener::new(config)
-///     ).await
-/// }
-/// ```
-pub async fn run_storage_server<L, C, F>(create_listener: F) -> Result<()>
-where
-    L: StorageEventListener + 'static,
-    C: Default + DeserializeOwned,
-    F: FnOnce(C) -> Result<L>,
-{
+/// 插件元数据 / Plugin metadata
+struct PluginMetadata {
+    plugin_no: String,
+    version: String,
+    priority: i32,
+    capabilities: Vec<String>,
+    socket_path: String,
+    protocol: crate::plugin::protocol::ProtocolFormat,
+}
+
+/// 初始化插件运行环境 / Initialize plugin runtime environment
+fn init_plugin_runtime() -> Result<PluginMetadata> {
     // 读取 plugin.json 配置 / Read plugin.json configuration
     let config_path = std::env::current_exe()
         .ok()
@@ -498,6 +482,7 @@ where
     let plugin_no = plugin_config.plugin_no;
     let version = plugin_config.version;
     let priority = plugin_config.priority;
+    let capabilities = plugin_config.capabilities;
     let args = PluginArgs::parse();
 
     // 初始化日志 / Initialize logging
@@ -544,20 +529,64 @@ where
     );
     info!("📡 Socket path: {}", socket_path);
 
+    Ok(PluginMetadata {
+        plugin_no,
+        version,
+        priority,
+        capabilities,
+        socket_path,
+        protocol,
+    })
+}
+
+// ============================================================================
+// 存储插件专用运行器 / Storage Plugin Runner
+// ============================================================================
+
+/// 运行存储插件服务器 / Run storage plugin server
+///
+/// 专门为 StorageEventListener 设计的运行函数，不需要实现 Plugin trait
+/// Dedicated runner for StorageEventListener, no need to implement Plugin trait
+///
+/// # 类型参数 / Type Parameters
+///
+/// * `L` - 实现了 `StorageEventListener` trait 的监听器类型
+/// * `C` - 配置类型，必须实现 Default 和 DeserializeOwned
+///
+/// # 示例 / Example
+///
+/// ```no_run
+/// use v::plugin::pdk::{StorageEventListener, run_storage_server};
+///
+/// #[tokio::main]
+/// async fn main() -> anyhow::Result<()> {
+///     run_storage_server::<MyStorageListener, MyConfig>(
+///         |config| MyStorageListener::new(config)
+///     ).await
+/// }
+/// ```
+pub async fn run_storage_server<L, C, F>(create_listener: F) -> Result<()>
+where
+    L: StorageEventListener + 'static,
+    C: Default + DeserializeOwned,
+    F: FnOnce(C) -> Result<L>,
+{
+    let metadata = init_plugin_runtime()?;
+
     // 创建监听器 / Create listener
     let user_config = C::default();
     let listener = create_listener(user_config)?;
 
     let wrapper = StoragePluginWrapper {
         listener: Box::new(listener),
-        name: Box::leak(plugin_no.into_boxed_str()),
-        version: Box::leak(version.into_boxed_str()),
-        priority,
-        capabilities: plugin_config.capabilities,
-        protocol,
+        name: Box::leak(metadata.plugin_no.into_boxed_str()),
+        version: Box::leak(metadata.version.into_boxed_str()),
+        priority: metadata.priority,
+        capabilities: metadata.capabilities,
+        protocol: metadata.protocol,
     };
 
-    let mut client = PluginClient::new(socket_path, wrapper);
+    let mut client = PluginClient::new(metadata.socket_path, wrapper);
     client.run_forever_with_ctrlc().await
 }
 
@@ -603,6 +632,107 @@ impl PluginHandler for StoragePluginWrapper {
         tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current()
                 .block_on(dispatch_storage_event(&mut *self.listener, event))
+        })
+    }
+
+    fn protocol(&self) -> crate::plugin::protocol::ProtocolFormat {
+        self.protocol
+    }
+}
+
+// ============================================================================
+// 认证插件专用运行器 / Auth Plugin Runner
+// ============================================================================
+
+/// 运行认证插件服务器 / Run auth plugin server
+///
+/// 专门为 AuthEventListener 设计的运行函数，不需要实现 Plugin trait
+/// Dedicated runner for AuthEventListener, no need to implement Plugin trait
+///
+/// # 类型参数 / Type Parameters
+///
+/// * `L` - 实现了 `AuthEventListener` trait 的监听器类型
+/// * `C` - 配置类型，必须实现 Default 和 DeserializeOwned
+///
+/// # 示例 / Example
+///
+/// ```no_run
+/// use v::plugin::pdk::{AuthEventListener, run_auth_server};
+///
+/// #[tokio::main]
+/// async fn main() -> anyhow::Result<()> {
+///     run_auth_server::<MyAuthListener, MyConfig>(
+///         |config| MyAuthListener::new(config)
+///     ).await
+/// }
+/// ```
+pub async fn run_auth_server<L, C, F>(create_listener: F) -> Result<()>
+where
+    L: AuthEventListener + 'static,
+    C: Default + DeserializeOwned,
+    F: FnOnce(C) -> Result<L>,
+{
+    let metadata = init_plugin_runtime()?;
+
+    // 创建监听器 / Create listener
+    let user_config = C::default();
+    let listener = create_listener(user_config)?;
+
+    let wrapper = AuthPluginWrapper {
+        listener: Box::new(listener),
+        name: Box::leak(metadata.plugin_no.into_boxed_str()),
+        version: Box::leak(metadata.version.into_boxed_str()),
+        priority: metadata.priority,
+        capabilities: metadata.capabilities,
+        protocol: metadata.protocol,
+    };
+
+    let mut client = PluginClient::new(metadata.socket_path, wrapper);
+    client.run_forever_with_ctrlc().await
+}
+
+/// 认证插件包装器 / Auth plugin wrapper
+struct AuthPluginWrapper {
+    listener: Box<dyn AuthEventListener>,
+    name: &'static str,
+    version: &'static str,
+    priority: i32,
+    capabilities: Vec<String>,
+    protocol: crate::plugin::protocol::ProtocolFormat,
+}
+
+impl PluginHandler for AuthPluginWrapper {
+    fn name(&self) -> &'static str {
+        self.name
+    }
+
+    fn version(&self) -> &'static str {
+        self.version
+    }
+
+    fn capabilities(&self) -> Vec<String> {
+        self.capabilities.clone()
+    }
+
+    fn priority(&self) -> i32 {
+        self.priority
+    }
+
+    fn config(&mut self, _cfg: &str) -> Result<()> {
+        // 认证插件的配置通过构造函数传递，这里不处理
+        // Auth plugin config is passed via constructor, not handled here
+        Ok(())
+    }
+
+    fn on_event(
+        &mut self,
+        event: &crate::plugin::protocol::EventMessage,
+    ) -> Result<crate::plugin::protocol::EventResponse> {
+        // 使用 tokio 的 block_in_place 在同步上下文中运行异步代码
+        // Use tokio's block_in_place to run async code in sync context
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current()
+                .block_on(dispatch_auth_event(&mut *self.listener, event))
         })
     }
 
