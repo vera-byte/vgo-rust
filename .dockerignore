@@ -1,0 +1,70 @@
+# Docker 构建忽略文件 / Docker build ignore file
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# IDE
+.vscode
+.idea
+.cursor
+.windsurf
+.augment
+*.swp
+*.swo
+*~
+
+# 构建产物 / Build artifacts
+target/
+dist/
+*.tar.gz
+*.vp
+*.sha256
+
+# 日志 / Logs
+logs/
+*.log
+
+# 数据 / Data
+data/
+*.db
+*.sqlite
+
+# 临时文件 / Temporary files
+tmp/
+temp/
+.tmp/
+
+# 文档 / Documentation
+docs/
+*.md
+!README.md
+
+# 前端项目 / Frontend projects
+v-admin-vue/
+node_modules/
+
+# 示例 / Examples
+examples/
+
+# 脚本 / Scripts
+scripts/
+
+# 配置文件 / Config files (除了默认配置)
+config/development.toml
+config/production.toml
+*.local.toml
+
+# 测试文件 / Test files
+tests/
+*_test.rs
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# 其他 / Others
+.DS_Store
+Thumbs.db

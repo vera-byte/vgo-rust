@@ -1,0 +1,385 @@
+# GitHub Actions 工作流：构建和发布
+# GitHub Actions Workflow: Build and Release
+#
+# 此工作流自动构建和打包以下组件：
+# This workflow automatically builds and packages the following components:
+# - v (公共工具库 / Common library)
+# - v-connect-im (即时通讯服务 / IM service)
+# - v-plugins-hub (插件中心 / Plugin hub)
+
+name: Build and Release
+
+on:
+  # 推送到主分支或标签时触发 / Trigger on push to main branch or tags
+  push:
+    branches:
+      - main
+      - develop
+    tags:
+      - "v*"
+
+  # 允许手动触发 / Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: "发布类型 / Release type"
+        required: true
+        default: "snapshot"
+        type: choice
+        options:
+          - snapshot
+          - release
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # 代码检查和测试 / Code check and test
+  check:
+    name: 代码检查 / Code Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码 / Checkout code
+        uses: actions/checkout@v4
+
+      - name: 安装 Rust 工具链 / Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: 缓存 Cargo 依赖 / Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: 代码格式检查 / Check code format
+        run: cargo fmt --all -- --check
+
+      - name: Clippy 检查 / Run Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: 运行测试 / Run tests
+        run: cargo test --workspace --verbose
+
+  # 构建矩阵：支持多平台 / Build matrix: Multi-platform support
+  build:
+    name: 构建 / Build - ${{ matrix.os }} - ${{ matrix.arch }}
+    needs: check
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux AMD64
+          - os: linux
+            arch: amd64
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+
+          # Linux ARM64
+          - os: linux
+            arch: arm64
+            runner: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+
+          # macOS AMD64 (Intel)
+          - os: darwin
+            arch: amd64
+            runner: macos-13
+            target: x86_64-apple-darwin
+
+          # macOS ARM64 (Apple Silicon)
+          - os: darwin
+            arch: arm64
+            runner: macos-14
+            target: aarch64-apple-darwin
+
+    steps:
+      - name: 检出代码 / Checkout code
+        uses: actions/checkout@v4
+
+      - name: 安装 Rust 工具链 / Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: 安装交叉编译工具 (Linux ARM64) / Install cross-compilation tools (Linux ARM64)
+        if: matrix.os == 'linux' && matrix.arch == 'arm64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
+      - name: 缓存 Cargo 依赖 / Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-${{ matrix.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.arch }}-cargo-
+
+      - name: 构建 v-connect-im / Build v-connect-im
+        run: |
+          cargo build --release --package v-connect-im --target ${{ matrix.target }}
+
+      - name: 构建插件 / Build plugins
+        run: |
+          cargo build --release --package v-connect-im-plugin-storage-sled --target ${{ matrix.target }}
+          cargo build --release --package v-connect-im-plugin-gateway --target ${{ matrix.target }}
+
+      - name: 打包 v-connect-im / Package v-connect-im
+        run: |
+          # 创建输出目录 / Create output directory
+          OUTPUT_DIR="dist/v-connect-im-${{ matrix.os }}-${{ matrix.arch }}"
+          mkdir -p "$OUTPUT_DIR"/{bin,config,logs,plugins/sockets,data}
+
+          # 复制二进制文件 / Copy binary
+          cp "target/${{ matrix.target }}/release/v-connect-im" "$OUTPUT_DIR/bin/"
+          chmod +x "$OUTPUT_DIR/bin/v-connect-im"
+
+          # 复制配置文件 / Copy config files
+          cp v-connect-im/config/default.toml "$OUTPUT_DIR/config/"
+
+          # 创建生产配置模板 / Create production config template
+          cp v-connect-im/config/production.toml "$OUTPUT_DIR/config/" || true
+
+          # 复制启动脚本 / Copy startup scripts
+          cp scripts/build-release.sh "$OUTPUT_DIR/" || true
+
+          # 创建 README / Create README
+          VERSION=$(grep '^version' v-connect-im/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          cat > "$OUTPUT_DIR/README.md" << EOF
+          # v-connect-im v$VERSION
+
+          Platform: ${{ matrix.os }}-${{ matrix.arch }}
+          Build Date: $(date '+%Y-%m-%d %H:%M:%S')
+          Git Commit: ${{ github.sha }}
+
+          ## Quick Start
+
+          1. Edit configuration: \`config/production.toml\`
+          2. Run: \`./bin/v-connect-im\`
+
+          For more information, see the main project documentation.
+          EOF
+
+          # 创建版本文件 / Create version file
+          cat > "$OUTPUT_DIR/VERSION" << EOF
+          VERSION=$VERSION
+          BUILD_DATE=$(date '+%Y-%m-%d %H:%M:%S')
+          GIT_COMMIT=${{ github.sha }}
+          PLATFORM=${{ matrix.os }}-${{ matrix.arch }}
+          EOF
+
+          # 打包为 tar.gz / Package as tar.gz
+          cd dist
+          tar -czf "v-connect-im-$VERSION-${{ matrix.os }}-${{ matrix.arch }}.tar.gz" "v-connect-im-${{ matrix.os }}-${{ matrix.arch }}"
+          sha256sum "v-connect-im-$VERSION-${{ matrix.os }}-${{ matrix.arch }}.tar.gz" > "v-connect-im-$VERSION-${{ matrix.os }}-${{ matrix.arch }}.tar.gz.sha256"
+
+      - name: 打包插件 / Package plugins
+        run: |
+          OUTPUT_DIR="dist/plugins"
+          mkdir -p "$OUTPUT_DIR"
+
+          # 获取版本信息 / Get version info
+          STORAGE_VERSION=$(grep '^version' v-plugins-hub/v-connect-im-plugin-storage-sled/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          GATEWAY_VERSION=$(grep '^version' v-plugins-hub/v-connect-im-plugin-gateway/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+
+          # 打包 storage-sled 插件 / Package storage-sled plugin
+          PLUGIN_DIR="$OUTPUT_DIR/storage-sled-$STORAGE_VERSION-${{ matrix.os }}-${{ matrix.arch }}"
+          mkdir -p "$PLUGIN_DIR"
+          cp "target/${{ matrix.target }}/release/v-connect-im-plugin-storage-sled" "$PLUGIN_DIR/"
+          chmod +x "$PLUGIN_DIR/v-connect-im-plugin-storage-sled"
+          cp v-plugins-hub/v-connect-im-plugin-storage-sled/plugin.json "$PLUGIN_DIR/"
+          cp v-plugins-hub/v-connect-im-plugin-storage-sled/README.md "$PLUGIN_DIR/" || true
+          echo "$STORAGE_VERSION" > "$PLUGIN_DIR/VERSION"
+
+          cd "$OUTPUT_DIR"
+          tar -czf "storage-sled-$STORAGE_VERSION-${{ matrix.os }}-${{ matrix.arch }}.vp" -C "storage-sled-$STORAGE_VERSION-${{ matrix.os }}-${{ matrix.arch }}" .
+          sha256sum "storage-sled-$STORAGE_VERSION-${{ matrix.os }}-${{ matrix.arch }}.vp" > "storage-sled-$STORAGE_VERSION-${{ matrix.os }}-${{ matrix.arch }}.vp.sha256"
+          rm -rf "storage-sled-$STORAGE_VERSION-${{ matrix.os }}-${{ matrix.arch }}"
+          cd ../..
+
+          # 打包 gateway 插件 / Package gateway plugin
+          PLUGIN_DIR="$OUTPUT_DIR/gateway-$GATEWAY_VERSION-${{ matrix.os }}-${{ matrix.arch }}"
+          mkdir -p "$PLUGIN_DIR"
+          cp "target/${{ matrix.target }}/release/v-connect-im-plugin-gateway" "$PLUGIN_DIR/"
+          chmod +x "$PLUGIN_DIR/v-connect-im-plugin-gateway"
+          cp v-plugins-hub/v-connect-im-plugin-gateway/plugin.json "$PLUGIN_DIR/"
+          cp v-plugins-hub/v-connect-im-plugin-gateway/README.md "$PLUGIN_DIR/" || true
+          echo "$GATEWAY_VERSION" > "$PLUGIN_DIR/VERSION"
+
+          cd "$OUTPUT_DIR"
+          tar -czf "gateway-$GATEWAY_VERSION-${{ matrix.os }}-${{ matrix.arch }}.vp" -C "gateway-$GATEWAY_VERSION-${{ matrix.os }}-${{ matrix.arch }}" .
+          sha256sum "gateway-$GATEWAY_VERSION-${{ matrix.os }}-${{ matrix.arch }}.vp" > "gateway-$GATEWAY_VERSION-${{ matrix.os }}-${{ matrix.arch }}.vp.sha256"
+          rm -rf "gateway-$GATEWAY_VERSION-${{ matrix.os }}-${{ matrix.arch }}"
+
+      - name: 上传构建产物 / Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            dist/*.tar.gz
+            dist/*.tar.gz.sha256
+            dist/plugins/*.vp
+            dist/plugins/*.vp.sha256
+          retention-days: 30
+
+  # 创建 GitHub Release / Create GitHub Release
+  release:
+    name: 创建发布 / Create Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release_type == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 检出代码 / Checkout code
+        uses: actions/checkout@v4
+
+      - name: 下载所有构建产物 / Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: 整理发布文件 / Organize release files
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name "*.tar.gz" -o -name "*.vp" -o -name "*.sha256" \) -exec cp {} release/ \;
+          ls -lh release/
+
+      - name: 生成发布说明 / Generate release notes
+        id: release_notes
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          if [ -z "$VERSION" ] || [ "$VERSION" = "$GITHUB_REF" ]; then
+            VERSION="snapshot-$(date +%Y%m%d-%H%M%S)"
+          fi
+
+          cat > release_notes.md << EOF
+          # v-connect-im Release $VERSION
+
+          ## 构建信息 / Build Information
+
+          - **构建时间 / Build Time**: $(date '+%Y-%m-%d %H:%M:%S UTC')
+          - **Git Commit**: ${{ github.sha }}
+          - **Git Branch**: ${{ github.ref_name }}
+
+          ## 包含组件 / Included Components
+
+          ### v-connect-im (即时通讯服务 / IM Service)
+          - Linux AMD64
+          - Linux ARM64
+          - macOS AMD64 (Intel)
+          - macOS ARM64 (Apple Silicon)
+
+          ### 插件 / Plugins
+          - storage-sled (Sled 存储插件 / Sled Storage Plugin)
+          - gateway (网关插件 / Gateway Plugin)
+
+          ## 下载说明 / Download Instructions
+
+          1. 下载对应平台的 \`v-connect-im-*.tar.gz\` 文件
+          2. 下载所需的插件 \`*.vp\` 文件
+          3. 验证 SHA256 校验和
+          4. 解压并按照 README 说明运行
+
+          ## 校验和验证 / Checksum Verification
+
+          \`\`\`bash
+          # Linux/macOS
+          sha256sum -c v-connect-im-*.tar.gz.sha256
+          sha256sum -c *.vp.sha256
+          \`\`\`
+
+          ## 快速开始 / Quick Start
+
+          \`\`\`bash
+          # 解压 / Extract
+          tar -xzf v-connect-im-*.tar.gz
+          cd v-connect-im-*
+
+          # 配置 / Configure
+          cp config/default.toml config/production.toml
+          vim config/production.toml
+
+          # 运行 / Run
+          ./bin/v-connect-im
+          \`\`\`
+
+          ## 更多信息 / More Information
+
+          请参阅项目文档：[docs/](https://github.com/${{ github.repository }}/tree/main/docs)
+          EOF
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: 创建 GitHub Release / Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.release_notes.outputs.version }}
+          name: Release ${{ steps.release_notes.outputs.version }}
+          body_path: release_notes.md
+          draft: false
+          prerelease: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+          files: |
+            release/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Docker 镜像构建 (可选) / Docker image build (optional)
+  docker:
+    name: 构建 Docker 镜像 / Build Docker Image
+    needs: check
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: 检出代码 / Checkout code
+        uses: actions/checkout@v4
+
+      - name: 设置 Docker Buildx / Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 登录 Docker Hub / Login to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: 提取元数据 / Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ secrets.DOCKER_USERNAME }}/v-connect-im
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      - name: 构建并推送 / Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./v-connect-im/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

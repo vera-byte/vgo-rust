@@ -1,0 +1,268 @@
+# 手动构建工作流 / Manual Build Workflow
+#
+# 此工作流允许手动触发构建，可以自定义构建参数
+# This workflow allows manual triggering with customizable build parameters
+
+name: Manual Build
+
+on:
+    workflow_dispatch:
+        inputs:
+            component:
+                description: "选择要构建的组件 / Select component to build"
+                required: true
+                type: choice
+                options:
+                    - all
+                    - v-connect-im
+                    - plugins
+            platform:
+                description: "选择目标平台 / Select target platform"
+                required: true
+                type: choice
+                options:
+                    - all
+                    - linux-amd64
+                    - linux-arm64
+                    - darwin-amd64
+                    - darwin-arm64
+            build_type:
+                description: "构建类型 / Build type"
+                required: true
+                type: choice
+                default: "release"
+                options:
+                    - release
+                    - debug
+            create_release:
+                description: "创建 GitHub Release / Create GitHub Release"
+                required: false
+                type: boolean
+                default: false
+
+env:
+    CARGO_TERM_COLOR: always
+    RUST_BACKTRACE: 1
+
+jobs:
+    build:
+        name: 手动构建 / Manual Build
+        runs-on: ${{ matrix.runner }}
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - os: linux
+                      arch: amd64
+                      runner: ubuntu-latest
+                      target: x86_64-unknown-linux-gnu
+                      enabled: ${{ github.event.inputs.platform == 'all' || github.event.inputs.platform == 'linux-amd64' }}
+
+                    - os: linux
+                      arch: arm64
+                      runner: ubuntu-latest
+                      target: aarch64-unknown-linux-gnu
+                      enabled: ${{ github.event.inputs.platform == 'all' || github.event.inputs.platform == 'linux-arm64' }}
+
+                    - os: darwin
+                      arch: amd64
+                      runner: macos-13
+                      target: x86_64-apple-darwin
+                      enabled: ${{ github.event.inputs.platform == 'all' || github.event.inputs.platform == 'darwin-amd64' }}
+
+                    - os: darwin
+                      arch: arm64
+                      runner: macos-14
+                      target: aarch64-apple-darwin
+                      enabled: ${{ github.event.inputs.platform == 'all' || github.event.inputs.platform == 'darwin-arm64' }}
+
+        # 只运行启用的平台 / Only run enabled platforms
+        if: matrix.enabled == 'true'
+
+        steps:
+            - name: 检出代码 / Checkout code
+              uses: actions/checkout@v4
+
+            - name: 安装 Rust 工具链 / Install Rust toolchain
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  targets: ${{ matrix.target }}
+
+            - name: 安装交叉编译工具 (Linux ARM64) / Install cross-compilation tools (Linux ARM64)
+              if: matrix.os == 'linux' && matrix.arch == 'arm64'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
+            - name: 缓存 Cargo 依赖 / Cache Cargo dependencies
+              uses: actions/cache@v4
+              with:
+                  path: |
+                      ~/.cargo/bin/
+                      ~/.cargo/registry/index/
+                      ~/.cargo/registry/cache/
+                      ~/.cargo/git/db/
+                      target/
+                  key: ${{ runner.os }}-${{ matrix.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+                  restore-keys: |
+                      ${{ runner.os }}-${{ matrix.arch }}-cargo-
+
+            - name: 构建 v-connect-im / Build v-connect-im
+              if: github.event.inputs.component == 'all' || github.event.inputs.component == 'v-connect-im'
+              run: |
+                  if [ "${{ github.event.inputs.build_type }}" = "release" ]; then
+                    cargo build --release --package v-connect-im --target ${{ matrix.target }}
+                  else
+                    cargo build --package v-connect-im --target ${{ matrix.target }}
+                  fi
+
+            - name: 构建插件 / Build plugins
+              if: github.event.inputs.component == 'all' || github.event.inputs.component == 'plugins'
+              run: |
+                  if [ "${{ github.event.inputs.build_type }}" = "release" ]; then
+                    cargo build --release --package v-connect-im-plugin-storage-sled --target ${{ matrix.target }}
+                    cargo build --release --package v-connect-im-plugin-gateway --target ${{ matrix.target }}
+                  else
+                    cargo build --package v-connect-im-plugin-storage-sled --target ${{ matrix.target }}
+                    cargo build --package v-connect-im-plugin-gateway --target ${{ matrix.target }}
+                  fi
+
+            - name: 打包产物 / Package artifacts
+              run: |
+                  BUILD_TYPE="${{ github.event.inputs.build_type }}"
+                  OUTPUT_DIR="dist/manual-build-${{ matrix.os }}-${{ matrix.arch }}"
+                  mkdir -p "$OUTPUT_DIR"
+
+                  # 确定二进制文件路径 / Determine binary path
+                  if [ "$BUILD_TYPE" = "release" ]; then
+                    BIN_PATH="target/${{ matrix.target }}/release"
+                  else
+                    BIN_PATH="target/${{ matrix.target }}/debug"
+                  fi
+
+                  # 打包 v-connect-im / Package v-connect-im
+                  if [ "${{ github.event.inputs.component }}" = "all" ] || [ "${{ github.event.inputs.component }}" = "v-connect-im" ]; then
+                    if [ -f "$BIN_PATH/v-connect-im" ]; then
+                      mkdir -p "$OUTPUT_DIR/v-connect-im"
+                      cp "$BIN_PATH/v-connect-im" "$OUTPUT_DIR/v-connect-im/"
+                      chmod +x "$OUTPUT_DIR/v-connect-im/v-connect-im"
+                      
+                      cd dist
+                      tar -czf "v-connect-im-manual-${{ matrix.os }}-${{ matrix.arch }}.tar.gz" "manual-build-${{ matrix.os }}-${{ matrix.arch }}/v-connect-im"
+                      cd ..
+                    fi
+                  fi
+
+                  # 打包插件 / Package plugins
+                  if [ "${{ github.event.inputs.component }}" = "all" ] || [ "${{ github.event.inputs.component }}" = "plugins" ]; then
+                    mkdir -p "$OUTPUT_DIR/plugins"
+                    
+                    if [ -f "$BIN_PATH/v-connect-im-plugin-storage-sled" ]; then
+                      cp "$BIN_PATH/v-connect-im-plugin-storage-sled" "$OUTPUT_DIR/plugins/"
+                      chmod +x "$OUTPUT_DIR/plugins/v-connect-im-plugin-storage-sled"
+                    fi
+                    
+                    if [ -f "$BIN_PATH/v-connect-im-plugin-gateway" ]; then
+                      cp "$BIN_PATH/v-connect-im-plugin-gateway" "$OUTPUT_DIR/plugins/"
+                      chmod +x "$OUTPUT_DIR/plugins/v-connect-im-plugin-gateway"
+                    fi
+                    
+                    cd dist
+                    tar -czf "plugins-manual-${{ matrix.os }}-${{ matrix.arch }}.tar.gz" "manual-build-${{ matrix.os }}-${{ matrix.arch }}/plugins"
+                    cd ..
+                  fi
+
+            - name: 上传构建产物 / Upload artifacts
+              uses: actions/upload-artifact@v4
+              with:
+                  name: manual-build-${{ matrix.os }}-${{ matrix.arch }}
+                  path: dist/*.tar.gz
+                  retention-days: 7
+
+    create-release:
+        name: 创建发布 / Create Release
+        needs: build
+        if: github.event.inputs.create_release == 'true'
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+        steps:
+            - name: 检出代码 / Checkout code
+              uses: actions/checkout@v4
+
+            - name: 下载所有构建产物 / Download all artifacts
+              uses: actions/download-artifact@v4
+              with:
+                  path: artifacts
+
+            - name: 整理发布文件 / Organize release files
+              run: |
+                  mkdir -p release
+                  find artifacts -type f -name "*.tar.gz" -exec cp {} release/ \;
+                  ls -lh release/
+
+            - name: 生成发布说明 / Generate release notes
+              id: release_notes
+              run: |
+                  TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+                  VERSION="manual-build-$TIMESTAMP"
+
+                  cat > release_notes.md << EOF
+                  # Manual Build $TIMESTAMP
+
+                  ## 构建信息 / Build Information
+
+                  - **构建时间 / Build Time**: $(date '+%Y-%m-%d %H:%M:%S UTC')
+                  - **构建类型 / Build Type**: ${{ github.event.inputs.build_type }}
+                  - **构建组件 / Components**: ${{ github.event.inputs.component }}
+                  - **目标平台 / Platforms**: ${{ github.event.inputs.platform }}
+                  - **Git Commit**: ${{ github.sha }}
+
+                  ## 说明 / Notes
+
+                  这是一个手动触发的构建，用于测试或特殊用途。
+                  This is a manually triggered build for testing or special purposes.
+
+                  ## 使用方法 / Usage
+
+                  1. 下载对应平台的 tar.gz 文件
+                  2. 解压: \`tar -xzf <filename>.tar.gz\`
+                  3. 运行二进制文件
+
+                  EOF
+
+                  echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+            - name: 创建 GitHub Release / Create GitHub Release
+              uses: softprops/action-gh-release@v1
+              with:
+                  tag_name: ${{ steps.release_notes.outputs.version }}
+                  name: Manual Build ${{ steps.release_notes.outputs.version }}
+                  body_path: release_notes.md
+                  draft: true
+                  prerelease: true
+                  files: release/*
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    summary:
+        name: 构建摘要 / Build Summary
+        needs: build
+        runs-on: ubuntu-latest
+        steps:
+            - name: 生成摘要 / Generate summary
+              run: |
+                  echo "## 🎉 手动构建完成 / Manual Build Completed" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "### 构建参数 / Build Parameters" >> $GITHUB_STEP_SUMMARY
+                  echo "- **组件 / Component**: ${{ github.event.inputs.component }}" >> $GITHUB_STEP_SUMMARY
+                  echo "- **平台 / Platform**: ${{ github.event.inputs.platform }}" >> $GITHUB_STEP_SUMMARY
+                  echo "- **类型 / Type**: ${{ github.event.inputs.build_type }}" >> $GITHUB_STEP_SUMMARY
+                  echo "- **创建发布 / Create Release**: ${{ github.event.inputs.create_release }}" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "### 下一步 / Next Steps" >> $GITHUB_STEP_SUMMARY
+                  echo "1. 在 Actions 页面下载构建产物" >> $GITHUB_STEP_SUMMARY
+                  echo "2. 解压并测试二进制文件" >> $GITHUB_STEP_SUMMARY
+                  if [ "${{ github.event.inputs.create_release }}" = "true" ]; then
+                    echo "3. 查看并发布 Draft Release" >> $GITHUB_STEP_SUMMARY
+                  fi

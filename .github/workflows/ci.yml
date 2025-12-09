@@ -1,0 +1,178 @@
+# GitHub Actions 工作流：持续集成
+# GitHub Actions Workflow: Continuous Integration
+#
+# 此工作流在每次推送和 PR 时运行，执行代码检查和测试
+# This workflow runs on every push and PR, performing code checks and tests
+
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - 'feature/**'
+  pull_request:
+    branches:
+      - main
+      - develop
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # 代码格式检查 / Code format check
+  fmt:
+    name: 代码格式检查 / Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码 / Checkout code
+        uses: actions/checkout@v4
+
+      - name: 安装 Rust 工具链 / Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: 检查代码格式 / Check code format
+        run: cargo fmt --all -- --check
+
+  # Clippy 代码检查 / Clippy linting
+  clippy:
+    name: Clippy 检查 / Clippy Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码 / Checkout code
+        uses: actions/checkout@v4
+
+      - name: 安装 Rust 工具链 / Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: 缓存 Cargo 依赖 / Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-clippy-
+            ${{ runner.os }}-cargo-
+
+      - name: 运行 Clippy / Run Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+  # 单元测试 / Unit tests
+  test:
+    name: 单元测试 / Unit Tests
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: 检出代码 / Checkout code
+        uses: actions/checkout@v4
+
+      - name: 安装 Rust 工具链 / Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 缓存 Cargo 依赖 / Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-test-
+            ${{ runner.os }}-cargo-
+
+      - name: 运行测试 / Run tests
+        run: cargo test --workspace --verbose
+
+      - name: 运行文档测试 / Run doc tests
+        run: cargo test --doc --workspace
+
+  # 编译检查 / Build check
+  build:
+    name: 编译检查 / Build Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码 / Checkout code
+        uses: actions/checkout@v4
+
+      - name: 安装 Rust 工具链 / Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 缓存 Cargo 依赖 / Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-
+            ${{ runner.os }}-cargo-
+
+      - name: 编译所有包 / Build all packages
+        run: cargo build --workspace --verbose
+
+      - name: 编译 v-connect-im (release) / Build v-connect-im (release)
+        run: cargo build --release --package v-connect-im
+
+      - name: 编译插件 / Build plugins
+        run: |
+          cargo build --release --package v-connect-im-plugin-storage-sled
+          cargo build --release --package v-connect-im-plugin-gateway
+
+  # 依赖审计 / Dependency audit
+  audit:
+    name: 依赖安全审计 / Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码 / Checkout code
+        uses: actions/checkout@v4
+
+      - name: 安装 cargo-audit / Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: 运行安全审计 / Run security audit
+        run: cargo audit
+
+  # 代码覆盖率 (可选) / Code coverage (optional)
+  coverage:
+    name: 代码覆盖率 / Code Coverage
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: 检出代码 / Checkout code
+        uses: actions/checkout@v4
+
+      - name: 安装 Rust 工具链 / Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 安装 cargo-tarpaulin / Install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin
+
+      - name: 生成代码覆盖率报告 / Generate coverage report
+        run: cargo tarpaulin --workspace --out Xml --verbose
+
+      - name: 上传到 Codecov / Upload to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./cobertura.xml
+          fail_ci_if_error: false
