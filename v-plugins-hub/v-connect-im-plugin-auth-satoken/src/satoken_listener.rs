@@ -302,4 +302,78 @@ impl AuthEventListener for SaTokenAuthListener {
             status: "ok".to_string(),
         })
     }
+
+    /// Token 验证 / Token validation
+    async fn auth_validate_token(
+        &mut self,
+        req: &ValidateTokenRequest,
+    ) -> Result<ValidateTokenResponse> {
+        info!("🔍 验证 Token / Validate token: {}", req.token);
+
+        // 调用 SaToken 验证接口 / Call SaToken validation API
+        let url = format!("{}/v1/sso/checkToken", self.config.satoken_url);
+        let resp = self
+            .client
+            .post(&url)
+            .json(&serde_json::json!({
+                "token": req.token,
+            }))
+            .timeout(std::time::Duration::from_millis(self.config.timeout_ms))
+            .send()
+            .await;
+
+        match resp {
+            Ok(response) => {
+                if response.status().is_success() {
+                    // 解析响应 / Parse response
+                    if let Ok(data) = response.json::<serde_json::Value>().await {
+                        let is_valid = data
+                            .get("data")
+                            .and_then(|d| d.get("isValid"))
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+
+                        if is_valid {
+                            let uid = data
+                                .get("data")
+                                .and_then(|d| d.get("uid"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+
+                            let expires_at = data
+                                .get("data")
+                                .and_then(|d| d.get("expiresAt"))
+                                .and_then(|v| v.as_i64())
+                                .unwrap_or(0);
+
+                            info!("✅ Token 有效 / Token valid: uid={}", uid);
+
+                            return Ok(ValidateTokenResponse {
+                                status: "ok".to_string(),
+                                valid: true,
+                                uid,
+                                expires_at,
+                            });
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "⚠️  SaToken 验证请求失败 / SaToken validation request failed: {}",
+                    e
+                );
+            }
+        }
+
+        info!("❌ Token 无效 / Token invalid");
+
+        Ok(ValidateTokenResponse {
+            status: "ok".to_string(),
+            valid: false,
+            uid: String::new(),
+            expires_at: 0,
+        })
+    }
 }

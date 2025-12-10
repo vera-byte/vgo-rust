@@ -48,10 +48,12 @@ peers = ""
 # 支持从 URL 自动下载并安装插件 / Support automatic download and install plugins from URL
 # 变量支持: ${os} (操作系统: darwin/linux/windows), ${arch} (架构: amd64/arm64)
 # Variable support: ${os} (OS: darwin/linux/windows), ${arch} (arch: amd64/arm64)
-# 示例: "https://github.com/WuKongIM/plugins/releases/download/latest/wk.plugin.ai-example-${os}-${arch}.wkp"
-# Example: "https://github.com/WuKongIM/plugins/releases/download/latest/wk.plugin.ai-example-${os}-${arch}.wkp"
+# 示例: "https://github.com/WuKongIM/plugins/releases/download/latest/v.plugin.ai-example-${os}-${arch}.wkp"
+# Example: "https://github.com/WuKongIM/plugins/releases/download/latest/v.plugin.ai-example-${os}-${arch}.wkp"
 # install = [
-#     "https://github.com/WuKongIM/plugins/releases/download/latest/wk.plugin.ai-example-${os}-${arch}.wkp"
+#    "file:///Users/mac/workspace/vgo-rust/dist/plugins/v-connect-im-plugin-storage-sled-0.1.0-darwin-arm64.vp",
+#    "file:///Users/mac/workspace/vgo-rust/dist/plugins/v-connect-im-plugin-auth-satoken-0.1.0-darwin-arm64.vp",
+#    "file:///Users/mac/workspace/vgo-rust/dist/plugins/v-connect-im-plugin-gateway-0.1.0-darwin-arm64.vp",
 # ]
 #install = [
 #    "file:///Users/mac/workspace/vgo-rust/dist/plugins/v-connect-im-plugin-storage-sled-0.0.0-darwin-arm64.vp",

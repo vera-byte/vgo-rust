@@ -1,19 +1,12 @@
-use anyhow::Result;
-pub use serde_json::{json, Value};
-
-/// 通用插件接口 / Generic plugin interface
-pub trait VPlugin {
-    /// 创建实例 / Create instance
-    fn new(config: Option<Value>) -> Self
-    where
-        Self: Sized;
-
-    /// 运行插件（阻塞或异步封装）/ Run plugin (blocking or async wrapper)
-    fn run(&mut self) -> Result<()>;
-
-    /// 应用配置 / Apply configuration
-    fn config(&mut self, cfg: &Value) -> Result<()>;
-}
+//! # 插件系统 / Plugin System
+//!
+//! 专用插件系统，完全使用 Protobuf 通信
+//! Specialized plugin system, fully using Protobuf communication
+//!
+//! 支持的插件类型：
+//! Supported plugin types:
+//! - 认证插件 (Auth Plugin): 实现 `AuthEventListener`
+//! - 存储插件 (Storage Plugin): 实现 `StorageEventListener`
 
 pub mod client;
 pub mod events;

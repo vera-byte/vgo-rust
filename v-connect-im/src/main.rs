@@ -436,28 +436,55 @@ impl VConnectIMServer {
                                 let is_valid = if let Some(pool) =
                                     self.plugin_connection_pool.as_ref()
                                 {
-                                    // 调用认证插件验证 token / Call auth plugin to validate token
-                                    let auth_event = serde_json::json!({
-                                        "event_type": "auth.validate_token",
-                                        "token": token,
-                                        "client_id": client_id,
-                                    });
+                                    // 查找认证插件 / Find auth plugin
+                                    let auth_plugins: Vec<String> = pool
+                                        .list_plugins()
+                                        .into_iter()
+                                        .filter(|(_, caps)| caps.iter().any(|c| c == "auth"))
+                                        .map(|(name, _)| name)
+                                        .collect();
 
-                                    match pool.broadcast_message_event(&auth_event).await {
-                                        Ok(responses) => {
-                                            // 检查认证插件的响应 / Check auth plugin response
-                                            responses.iter().any(|(_, resp)| {
-                                                resp.get("status")
-                                                    .and_then(|s| s.as_str())
-                                                    .map(|s| s == "ok")
-                                                    .unwrap_or(false)
-                                            })
+                                    if !auth_plugins.is_empty() {
+                                        // 调用认证插件验证 token / Call auth plugin to validate token
+                                        use prost::Message;
+                                        use v::plugin::protocol::{
+                                            EventMessage, ValidateTokenRequest,
+                                        };
+
+                                        let validate_req = ValidateTokenRequest {
+                                            token: token.to_string(),
+                                        };
+
+                                        let event = EventMessage {
+                                            event_type: "auth.validate_token".to_string(),
+                                            payload: validate_req.encode_to_vec(),
+                                            timestamp: chrono::Utc::now().timestamp_millis(),
+                                            trace_id: client_id.to_string(),
+                                        };
+
+                                        match pool.send_event(&auth_plugins[0], &event).await {
+                                            Ok(response) => {
+                                                // 解析响应 / Parse response
+                                                match v::plugin::protocol::ValidateTokenResponse::decode(&response.data[..]) {
+                                                    Ok(resp) => {
+                                                        info!("✅ 认证插件验证结果 / Auth plugin validation result: valid={}", resp.valid);
+                                                        resp.valid
+                                                    }
+                                                    Err(e) => {
+                                                        warn!("认证插件响应解析失败 / Failed to parse auth plugin response: {}", e);
+                                                        self.validate_token(token).await.unwrap_or(false)
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => {
+                                                warn!("认证插件调用失败，回退到本地验证 / Auth plugin failed, fallback to local: {}", e);
+                                                self.validate_token(token).await.unwrap_or(false)
+                                            }
                                         }
-                                        Err(e) => {
-                                            warn!("认证插件调用失败，回退到本地验证 / Auth plugin failed, fallback to local: {}", e);
-                                            // 回退到本地验证 / Fallback to local validation
-                                            self.validate_token(token).await.unwrap_or(false)
-                                        }
+                                    } else {
+                                        // 没有认证插件，使用本地验证 / No auth plugin, use local validation
+                                        debug!("未找到认证插件，使用本地验证 / No auth plugin found, using local validation");
+                                        self.validate_token(token).await.unwrap_or(false)
                                     }
                                 } else {
                                     // 没有插件系统，使用本地验证 / No plugin system, use local validation
@@ -1295,18 +1322,7 @@ fn build_http_server(
             .configure(|cfg| {
                 crate::api::openapi::register(cfg, "/openapi.json");
             })
-            // 内部跨节点API / internal cross-node APIs
-            .configure(|cfg| {
-                crate::api::v1::internal::has_client::register(cfg, "/v1/internal/has_client");
-                crate::api::v1::internal::forward_client::register(
-                    cfg,
-                    "/v1/internal/forward_client",
-                );
-                crate::api::v1::internal::clients_by_uid::register(
-                    cfg,
-                    "/v1/internal/clients_by_uid",
-                );
-            })
+            // 只保留健康检查接口 / Only keep health check endpoints
             .configure(crate::router::configure)
     })
     .bind(addr.clone())?

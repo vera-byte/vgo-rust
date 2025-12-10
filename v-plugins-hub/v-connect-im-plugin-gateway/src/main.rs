@@ -73,5 +73,5 @@ impl Plugin for GatewayPlugin {
 async fn main() -> Result<()> {
     // 启动网关插件服务器 / Start gateway plugin server
     // 插件元信息从 plugin.json 自动读取 / Plugin metadata is automatically read from plugin.json
-    v::plugin::pdk::run_server::<GatewayPlugin>().await
+    v::plugin::pdk::run::<GatewayPlugin>().await
 }

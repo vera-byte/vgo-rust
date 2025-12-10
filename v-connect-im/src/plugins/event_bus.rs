@@ -206,7 +206,11 @@ impl PluginEventBus {
         for sub in matched_subscribers {
             match self
                 .pool
-                .send_event(&sub.subscriber, "event.published", &event_message)
+                .send_event_with_payload(
+                    &sub.subscriber,
+                    "event.published",
+                    serde_json::to_vec(&event_message)?,
+                )
                 .await
             {
                 Ok(Some(response)) => {

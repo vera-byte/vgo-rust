@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use crate::plugin::protocol::{
     BanUserRequest, BanUserResponse, KickOutRequest, KickOutResponse, LoginRequest, LoginResponse,
     LogoutRequest, LogoutResponse, RenewTokenRequest, RenewTokenResponse, TokenReplacedRequest,
-    TokenReplacedResponse,
+    TokenReplacedResponse, ValidateTokenRequest, ValidateTokenResponse,
 };
 
 // ============================================================================
@@ -102,4 +102,16 @@ pub trait AuthEventListener: Send + Sync {
     /// # 返回 / Returns
     /// - `Result<BanUserResponse>`: 用户封禁响应 / User ban response
     async fn auth_ban_user(&mut self, req: &BanUserRequest) -> Result<BanUserResponse>;
+
+    /// Token 验证事件 / Token validation event
+    ///
+    /// # 参数 / Parameters
+    /// - `req`: Token 验证请求 / Token validation request
+    ///
+    /// # 返回 / Returns
+    /// - `Result<ValidateTokenResponse>`: Token 验证响应 / Token validation response
+    async fn auth_validate_token(
+        &mut self,
+        req: &ValidateTokenRequest,
+    ) -> Result<ValidateTokenResponse>;
 }

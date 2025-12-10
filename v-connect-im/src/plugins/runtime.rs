@@ -20,6 +20,7 @@ use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
 
 use v::plugin::installer::PluginInstaller;
+use prost::Message; // For Protobuf decoding
 
 /// 插件状态 / Plugin status
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -760,37 +761,51 @@ impl UnixSocketServer {
                         break;
                     }
 
-                    let payload: Value = serde_json::from_slice(&buffer).unwrap_or(Value::Null);
-
+                    // 尝试解析握手消息（支持 Protobuf 和 JSON）
+                    // Try to parse handshake message (support both Protobuf and JSON)
                     if !handshake_done {
                         // 处理握手 / Handle handshake
                         handshake_done = true;
 
-                        let name = payload
-                            .get("name")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("unknown");
-                        plugin_name = Some(name.to_string());
+                        let (name, version, capabilities, priority) = 
+                            // 先尝试 Protobuf 格式 / Try Protobuf first
+                            if let Ok(handshake) = v::plugin::protocol::HandshakeRequest::decode(&buffer[..]) {
+                                (
+                                    handshake.name,
+                                    handshake.version,
+                                    handshake.capabilities,
+                                    handshake.priority,
+                                )
+                            } else {
+                                // 回退到 JSON 格式（向后兼容）/ Fallback to JSON (backward compatible)
+                                let payload: Value = serde_json::from_slice(&buffer).unwrap_or(Value::Null);
+                                let name = payload
+                                    .get("name")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("unknown")
+                                    .to_string();
+                                let version = payload
+                                    .get("version")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("unknown")
+                                    .to_string();
+                                let capabilities = payload
+                                    .get("capabilities")
+                                    .and_then(|v| v.as_array())
+                                    .map(|arr| {
+                                        arr.iter()
+                                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                            .collect::<Vec<_>>()
+                                    })
+                                    .unwrap_or_default();
+                                let priority = payload
+                                    .get("priority")
+                                    .and_then(|v| v.as_i64())
+                                    .unwrap_or(0) as i32;
+                                (name, version, capabilities, priority)
+                            };
 
-                        let version = payload
-                            .get("version")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("unknown");
-
-                        let capabilities = payload
-                            .get("capabilities")
-                            .and_then(|v| v.as_array())
-                            .map(|arr| {
-                                arr.iter()
-                                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                                    .collect::<Vec<_>>()
-                            })
-                            .unwrap_or_default();
-
-                        let priority = payload
-                            .get("priority")
-                            .and_then(|v| v.as_i64())
-                            .unwrap_or(0) as i32;
+                        plugin_name = Some(name.clone());
 
                         info!(
                             "🤝 Plugin handshake: {} v{} (priority: {}, capabilities: {:?})",
@@ -818,10 +833,9 @@ impl UnixSocketServer {
                             if matched_key.is_none() {
                                 let short_name = name
                                     .strip_prefix("v.plugin.")
-                                    .or_else(|| name.strip_prefix("wk.plugin."))
-                                    .unwrap_or(name);
+                                    .unwrap_or(&name);
 
-                                if key == name
+                                if key == &name
                                     || key == short_name
                                     || key.contains(short_name)
                                     || key.ends_with(short_name)
@@ -864,10 +878,13 @@ impl UnixSocketServer {
                         }
 
                         // 发送握手响应 / Send handshake response
-                        let response = serde_json::to_vec(&serde_json::json!({
-                            "status": "ok",
-                            "config": {}
-                        }))?;
+                        let handshake_response = v::plugin::protocol::HandshakeResponse {
+                            status: "ok".to_string(),
+                            message: "Handshake successful".to_string(),
+                            config: String::new(), // 配置通过单独的 config 消息发送
+                            protocol: "protobuf".to_string(),
+                        };
+                        let response = handshake_response.encode_to_vec();
                         write_half.write_u32(response.len() as u32).await?;
                         write_half.write_all(&response).await?;
                         write_half.flush().await?;
@@ -966,24 +983,30 @@ impl PluginConnectionPool {
         }
     }
 
-    /// 向插件发送事件 / Send event to plugin
+    /// 列出所有插件及其能力 / List all plugins and their capabilities
+    pub fn list_plugins(&self) -> Vec<(String, Vec<String>)> {
+        self.manager
+            .plugins
+            .iter()
+            .map(|entry| {
+                let name = entry.key().clone();
+                let capabilities = entry.value().capabilities();
+                (name, capabilities)
+            })
+            .collect()
+    }
+
+    /// 向插件发送 Protobuf 事件 / Send Protobuf event to plugin
     pub async fn send_event(
         &self,
         plugin_name: &str,
-        event_type: &str,
-        payload: &Value,
-    ) -> Result<Option<Value>> {
+        event: &v::plugin::protocol::EventMessage,
+    ) -> Result<v::plugin::protocol::EventResponse> {
         if let Some(conn) = self.connections.get(plugin_name) {
             let mut stream = conn.lock().await;
 
-            // 构建事件消息 / Build event message
-            let msg = serde_json::json!({
-                "event_type": event_type,
-                "payload": payload
-            });
-
-            // 发送消息 / Send message
-            let bytes = serde_json::to_vec(&msg)?;
+            // 发送 Protobuf 消息 / Send Protobuf message
+            let bytes = event.encode_to_vec();
             stream.write_u32(bytes.len() as u32).await?;
             stream.write_all(&bytes).await?;
             stream.flush().await?;
@@ -993,10 +1016,57 @@ impl PluginConnectionPool {
             let mut resp_buf = vec![0u8; resp_len as usize];
             stream.read_exact(&mut resp_buf).await?;
 
-            let response: Value = serde_json::from_slice(&resp_buf)?;
-            Ok(Some(response))
+            let response = v::plugin::protocol::EventResponse::decode(&resp_buf[..])?;
+            Ok(response)
         } else {
-            Ok(None)
+            Err(anyhow::anyhow!("Plugin {} not found", plugin_name))
+        }
+    }
+
+    /// 向插件发送事件（通用方法，返回 JSON）/ Send event to plugin (generic method, returns JSON)
+    pub async fn send_event_with_payload(
+        &self,
+        plugin_name: &str,
+        event_type: &str,
+        payload: Vec<u8>,
+    ) -> Result<Option<Value>> {
+        let event = v::plugin::protocol::EventMessage {
+            event_type: event_type.to_string(),
+            payload,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            trace_id: String::new(),
+        };
+        
+        match self.send_event(plugin_name, &event).await {
+            Ok(response) => {
+                // 将 Protobuf 响应的 data 解析为 JSON
+                // Parse Protobuf response data as JSON
+                if response.data.is_empty() {
+                    Ok(Some(serde_json::json!({
+                        "status": response.status,
+                        "flow": response.flow
+                    })))
+                } else {
+                    match serde_json::from_slice(&response.data) {
+                        Ok(json) => Ok(Some(json)),
+                        Err(_) => {
+                            // 如果不是 JSON，返回状态
+                            // If not JSON, return status
+                            Ok(Some(serde_json::json!({
+                                "status": response.status,
+                                "flow": response.flow
+                            })))
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                if e.to_string().contains("not found") {
+                    Ok(None)
+                } else {
+                    Err(e)
+                }
+            }
         }
     }
 
@@ -1041,7 +1111,9 @@ impl PluginConnectionPool {
             info!("📤 向插件 {} 发送 message.incoming 事件 / Sending message.incoming event to plugin {}", name, name);
 
             // 发送事件 / Send event
-            match self.send_event(&name, "message.incoming", message).await {
+            // 将 JSON 转为字节 / Convert JSON to bytes
+            let payload = serde_json::to_vec(message)?;
+            match self.send_event_with_payload(&name, "message.incoming", payload).await {
                 Ok(Some(response)) => {
                     info!(
                         "✅ 插件 {} 响应成功 / Plugin {} responded successfully",
@@ -1141,7 +1213,9 @@ impl PluginConnectionPool {
                 debug!("🎯 找到存储插件 / Found storage plugin: {}", plugin_name);
 
                 // 发送事件到存储插件 / Send event to storage plugin
-                match self.send_event(plugin_name, event_type, payload).await {
+                // 将 JSON 转为字节 / Convert JSON to bytes
+                let payload_bytes = serde_json::to_vec(payload)?;
+                match self.send_event_with_payload(plugin_name, event_type, payload_bytes).await {
                     Ok(Some(response)) => {
                         debug!(
                             "✅ 存储插件响应成功 / Storage plugin responded: {:?}",
@@ -1209,29 +1283,63 @@ impl PluginConnectionPool {
         msg_type: &str,
         room_id: Option<&str>,
     ) -> Result<bool> {
-        let payload = serde_json::json!({
-            "message_id": message_id,
-            "from_uid": from_uid,
-            "to_uid": to_uid,
-            "content": content,
-            "timestamp": timestamp,
-            "msg_type": msg_type,
-            "room_id": room_id
-        });
+        use prost::Message;
+        use v::plugin::protocol::{SaveMessageRequest, SaveMessageResponse};
+
+        // 构建 Protobuf 请求 / Build Protobuf request
+        // 注意：room_id 暂时不在 Protobuf 定义中，可以放在 content 里
+        let mut content_with_room = content.clone();
+        if let Some(rid) = room_id {
+            if let Some(obj) = content_with_room.as_object_mut() {
+                obj.insert("room_id".to_string(), serde_json::Value::String(rid.to_string()));
+            }
+        }
+        
+        let request = SaveMessageRequest {
+            message_id: message_id.to_string(),
+            from_uid: from_uid.to_string(),
+            to_uid: to_uid.to_string(),
+            content: serde_json::to_string(&content_with_room)?,
+            timestamp,
+            msg_type: msg_type.to_string(),
+        };
+
+        // 查找存储插件 / Find storage plugin
+        let storage_plugins: Vec<String> = self
+            .list_plugins()
+            .into_iter()
+            .filter(|(_, caps)| caps.iter().any(|c| c == "storage"))
+            .map(|(name, _)| name)
+            .collect();
+
+        if storage_plugins.is_empty() {
+            return Ok(false);
+        }
+
+        let event = v::plugin::protocol::EventMessage {
+            event_type: "storage.message.save".to_string(),
+            payload: request.encode_to_vec(),
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            trace_id: message_id.to_string(),
+        };
 
         match self
-            .send_storage_event("storage.message.save", &payload)
+            .send_event(&storage_plugins[0], &event)
             .await
         {
-            Ok(Some(response)) => {
-                if response.get("status").and_then(|v| v.as_str()) == Some("ok") {
-                    Ok(true)
-                } else {
-                    Ok(false)
+            Ok(response) => {
+                match SaveMessageResponse::decode(&response.data[..]) {
+                    Ok(resp) => Ok(resp.status == "ok"),
+                    Err(e) => {
+                        warn!("存储插件响应解析失败 / Failed to parse storage plugin response: {}", e);
+                        Ok(false)
+                    }
                 }
             }
-            Ok(None) => Ok(false),
-            Err(e) => Err(e),
+            Err(e) => {
+                warn!("存储插件调用失败 / Storage plugin call failed: {}", e);
+                Ok(false)
+            }
         }
     }
 
@@ -1458,7 +1566,7 @@ impl PluginConnectionPool {
 
         // 向目标插件发送事件 / Send event to target plugin
         match self
-            .send_event(to_plugin, &event_type, &enriched_payload)
+            .send_event_with_payload(to_plugin, &event_type, serde_json::to_vec(&enriched_payload)?)
             .await
         {
             Ok(Some(response)) => {
@@ -1530,7 +1638,7 @@ impl PluginConnectionPool {
 
         // 发送到目标插件 / Send to target plugin
         match self
-            .send_event(to_plugin, "plugin.message", &enriched_message)
+            .send_event_with_payload(to_plugin, "plugin.message", serde_json::to_vec(&enriched_message)?)
             .await
         {
             Ok(Some(_)) => {
@@ -1633,7 +1741,7 @@ impl PluginConnectionPool {
 
             // 发送广播事件 / Send broadcast event
             match self
-                .send_event(plugin_name, "plugin.broadcast", &enriched_message)
+                .send_event_with_payload(plugin_name, "plugin.broadcast", serde_json::to_vec(&enriched_message)?)
                 .await
             {
                 Ok(Some(response)) => {

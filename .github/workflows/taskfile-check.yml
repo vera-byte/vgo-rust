@@ -1,0 +1,44 @@
+name: Taskfile Check
+
+on:
+    push:
+        paths:
+            - "Taskfile.yml"
+            - ".github/workflows/taskfile-check.yml"
+    pull_request:
+        paths:
+            - "Taskfile.yml"
+            - ".github/workflows/taskfile-check.yml"
+
+jobs:
+    validate:
+        name: Validate Taskfile
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Install Task
+              uses: arduino/setup-task@v1
+              with:
+                  version: 3.x
+                  repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Validate Taskfile syntax
+              run: |
+                  task --version
+                  task --list
+
+            - name: Check task descriptions
+              run: |
+                  echo "Checking all tasks have descriptions..."
+                  task --list-all
+
+            - name: Test common tasks
+              run: |
+                  echo "Testing info task..."
+                  task info
+
+                  echo "Testing version task..."
+                  task version

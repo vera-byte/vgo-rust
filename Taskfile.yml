@@ -1,0 +1,350 @@
+# Taskfile for vgo-rust project
+# 项目任务管理文件 / Project task management file
+#
+# 安装 Task: https://taskfile.dev/installation/
+# Install Task: brew install go-task/tap/go-task
+#
+# 使用方法 / Usage:
+#   task --list              # 列出所有任务 / List all tasks
+#   task build:plugins       # 构建所有插件 / Build all plugins
+#   task build:release       # 构建生产版本 / Build release version
+#   task check:plugins       # 检查插件状态 / Check plugin status
+#   task cleanup:plugins     # 清理插件 / Cleanup plugins
+
+version: "3"
+
+vars:
+  PROJECT_ROOT:
+    sh: pwd
+  SCRIPTS_DIR: "{{.PROJECT_ROOT}}/scripts"
+  DIST_DIR: "{{.PROJECT_ROOT}}/dist"
+  PLUGINS_DIR: "{{.PROJECT_ROOT}}/v-plugins-hub"
+
+tasks:
+  # ============================================
+  # 默认任务 / Default Task
+  # ============================================
+  default:
+    desc: 显示可用任务列表 / Show available tasks
+    cmds:
+      - task --list
+    silent: true
+
+  # ============================================
+  # 构建任务 / Build Tasks
+  # ============================================
+  build:plugins:
+    desc: 构建所有插件为 .vp 文件 / Build all plugins as .vp files
+    summary: |
+      构建所有插件并打包为 .vp 文件
+      Build all plugins and package as .vp files
+
+      输出目录 / Output: {{.DIST_DIR}}/plugins
+    cmds:
+      - bash {{.SCRIPTS_DIR}}/build-plugins.sh
+    sources:
+      - "{{.PLUGINS_DIR}}/**/src/**/*.rs"
+      - "{{.PLUGINS_DIR}}/**/Cargo.toml"
+    generates:
+      - "{{.DIST_DIR}}/plugins/*.vp"
+
+  build:plugin:
+    desc: 构建指定插件 / Build specific plugin
+    summary: |
+      构建指定的插件
+      Build a specific plugin
+
+      用法 / Usage: task build:plugin PLUGIN=v-connect-im-plugin-storage-sled
+    cmds:
+      - bash {{.SCRIPTS_DIR}}/build-plugins.sh {{.PLUGIN}}
+    requires:
+      vars: [PLUGIN]
+
+  build:release:
+    desc: 构建 v-connect-im 生产版本 / Build v-connect-im release version
+    summary: |
+      构建 v-connect-im 的生产环境版本
+      Build production version of v-connect-im
+
+      输出目录 / Output: {{.DIST_DIR}}/v-connect-im
+    cmds:
+      - bash {{.SCRIPTS_DIR}}/build-release.sh
+    sources:
+      - "v-connect-im/src/**/*.rs"
+      - "v-connect-im/Cargo.toml"
+      - "v/src/**/*.rs"
+    generates:
+      - "{{.DIST_DIR}}/v-connect-im/bin/v-connect-im"
+
+  build:release:custom:
+    desc: 构建到自定义目录 / Build to custom directory
+    summary: |
+      构建 v-connect-im 到自定义输出目录
+      Build v-connect-im to custom output directory
+
+      用法 / Usage: task build:release:custom OUTPUT=~/deploy/v-connect-im
+    cmds:
+      - bash {{.SCRIPTS_DIR}}/build-release.sh {{.OUTPUT}}
+    requires:
+      vars: [OUTPUT]
+
+  build:all:
+    desc: 构建所有项目（插件 + 主程序）/ Build all projects (plugins + main)
+    summary: |
+      构建所有插件和主程序
+      Build all plugins and main program
+    cmds:
+      - task: build:plugins
+      - task: build:release
+
+  # ============================================
+  # 检查和验证任务 / Check and Validation Tasks
+  # ============================================
+  check:plugins:
+    desc: 检查插件状态 / Check plugin status
+    summary: |
+      检查插件进程、socket 文件、配置等状态
+      Check plugin processes, socket files, configurations, etc.
+    cmds:
+      - bash {{.SCRIPTS_DIR}}/check-plugins.sh
+
+  check:workflows:
+    desc: 验证 GitHub Actions 工作流 / Validate GitHub Actions workflows
+    summary: |
+      验证 GitHub Actions 工作流配置
+      Validate GitHub Actions workflow configurations
+    cmds:
+      - bash {{.SCRIPTS_DIR}}/validate-workflows.sh
+
+  # ============================================
+  # 清理任务 / Cleanup Tasks
+  # ============================================
+  cleanup:plugins:
+    desc: 清理所有插件进程和 socket 文件 / Cleanup all plugin processes and socket files
+    summary: |
+      停止所有插件进程并清理 socket 文件
+      Stop all plugin processes and cleanup socket files
+    cmds:
+      - bash {{.SCRIPTS_DIR}}/cleanup-plugins.sh
+
+  cleanup:dist:
+    desc: 清理构建产物 / Cleanup build artifacts
+    summary: |
+      清理 dist 目录下的所有构建产物
+      Cleanup all build artifacts in dist directory
+    cmds:
+      - rm -rf {{.DIST_DIR}}
+      - echo "✅ 已清理构建产物 / Build artifacts cleaned"
+
+  cleanup:target:
+    desc: 清理 Cargo 构建缓存 / Cleanup Cargo build cache
+    summary: |
+      清理所有 target 目录
+      Cleanup all target directories
+    cmds:
+      - cargo clean
+      - echo "✅ 已清理 Cargo 缓存 / Cargo cache cleaned"
+
+  cleanup:all:
+    desc: 清理所有（进程 + 构建产物 + 缓存）/ Cleanup all (processes + artifacts + cache)
+    summary: |
+      执行完整清理：停止进程、删除构建产物和缓存
+      Full cleanup: stop processes, remove artifacts and cache
+    cmds:
+      - task: cleanup:plugins
+      - task: cleanup:dist
+      - task: cleanup:target
+
+  # ============================================
+  # 开发任务 / Development Tasks
+  # ============================================
+  dev:im:
+    desc: 启动 v-connect-im 开发服务器 / Start v-connect-im dev server
+    summary: |
+      在开发模式下启动 v-connect-im
+      Start v-connect-im in development mode
+    dir: v-connect-im
+    cmds:
+      - cargo run
+
+  dev:admin:
+    desc: 启动 v-admin 开发服务器 / Start v-admin dev server
+    summary: |
+      在开发模式下启动 v-admin
+      Start v-admin in development mode
+    dir: v-admin
+    cmds:
+      - cargo run
+
+  dev:auth:
+    desc: 启动 v-auth-center 开发服务器 / Start v-auth-center dev server
+    summary: |
+      在开发模式下启动 v-auth-center
+      Start v-auth-center in development mode
+    dir: v-auth-center
+    cmds:
+      - cargo run
+
+  # ============================================
+  # 测试任务 / Test Tasks
+  # ============================================
+  test:
+    desc: 运行所有测试 / Run all tests
+    summary: |
+      运行工作区中的所有测试
+      Run all tests in workspace
+    cmds:
+      - cargo test --workspace
+
+  test:v:
+    desc: 测试公共库 v / Test common library v
+    summary: |
+      运行 v 库的测试
+      Run tests for v library
+    dir: v
+    cmds:
+      - cargo test
+
+  test:im:
+    desc: 测试 v-connect-im / Test v-connect-im
+    summary: |
+      运行 v-connect-im 的测试
+      Run tests for v-connect-im
+    dir: v-connect-im
+    cmds:
+      - cargo test
+
+  # ============================================
+  # 代码质量任务 / Code Quality Tasks
+  # ============================================
+  fmt:
+    desc: 格式化代码 / Format code
+    summary: |
+      使用 rustfmt 格式化所有 Rust 代码
+      Format all Rust code using rustfmt
+    cmds:
+      - cargo fmt --all
+
+  fmt:check:
+    desc: 检查代码格式 / Check code format
+    summary: |
+      检查代码格式是否符合规范（不修改文件）
+      Check if code format is correct (without modifying files)
+    cmds:
+      - cargo fmt --all -- --check
+
+  clippy:
+    desc: 运行 Clippy 代码检查 / Run Clippy linter
+    summary: |
+      使用 Clippy 检查代码质量
+      Check code quality using Clippy
+    cmds:
+      - cargo clippy --workspace --all-targets -- -D warnings
+
+  lint:
+    desc: 运行所有代码检查 / Run all linters
+    summary: |
+      运行格式检查和 Clippy
+      Run format check and Clippy
+    cmds:
+      - task: fmt:check
+      - task: clippy
+
+  # ============================================
+  # 文档任务 / Documentation Tasks
+  # ============================================
+  docs:build:
+    desc: 构建 Rust 文档 / Build Rust documentation
+    summary: |
+      生成 Rust API 文档
+      Generate Rust API documentation
+    cmds:
+      - cargo doc --workspace --no-deps
+
+  docs:open:
+    desc: 打开 Rust 文档 / Open Rust documentation
+    summary: |
+      生成并在浏览器中打开 Rust API 文档
+      Generate and open Rust API documentation in browser
+    cmds:
+      - cargo doc --workspace --no-deps --open
+
+  docs:serve:
+    desc: 启动 Mintlify 文档服务器 / Start Mintlify docs server
+    summary: |
+      启动项目文档开发服务器
+      Start project documentation dev server
+    dir: docs
+    cmds:
+      - mintlify dev
+
+  # ============================================
+  # 数据库任务 / Database Tasks
+  # ============================================
+  db:migrate:
+    desc: 运行数据库迁移 / Run database migrations
+    summary: |
+      执行 SQL 迁移脚本
+      Execute SQL migration scripts
+    cmds:
+      - echo "⚠️  请手动执行 sql/ 目录下的迁移脚本"
+      - echo "⚠️  Please manually execute migration scripts in sql/ directory"
+
+  # ============================================
+  # 工具任务 / Utility Tasks
+  # ============================================
+  install:tools:
+    desc: 安装开发工具 / Install development tools
+    summary: |
+      安装项目所需的开发工具
+      Install required development tools
+    cmds:
+      - rustup component add rustfmt clippy
+      - cargo install cargo-watch
+      - echo "✅ 开发工具安装完成 / Development tools installed"
+
+  watch:im:
+    desc: 监听文件变化并重启 v-connect-im / Watch and restart v-connect-im
+    summary: |
+      监听文件变化，自动重新编译和运行 v-connect-im
+      Watch for file changes and auto-recompile v-connect-im
+
+      需要先安装: cargo install cargo-watch
+    dir: v-connect-im
+    cmds:
+      - cargo watch -x run
+
+  # ============================================
+  # 信息任务 / Info Tasks
+  # ============================================
+  info:
+    desc: 显示项目信息 / Show project information
+    summary: |
+      显示项目结构和配置信息
+      Show project structure and configuration info
+    cmds:
+      - 'echo "📦 项目根目录 / Project Root: {{.PROJECT_ROOT}}"'
+      - 'echo "📁 脚本目录 / Scripts Dir: {{.SCRIPTS_DIR}}"'
+      - 'echo "📁 输出目录 / Output Dir: {{.DIST_DIR}}"'
+      - 'echo "📁 插件目录 / Plugins Dir: {{.PLUGINS_DIR}}"'
+      - echo ""
+      - 'echo "🔧 可用任务 / Available Tasks:"'
+      - task --list
+
+  version:
+    desc: 显示版本信息 / Show version information
+    summary: |
+      显示各个组件的版本信息
+      Show version information for all components
+    cmds:
+      - echo "v-connect-im:"
+      - grep '^version' v-connect-im/Cargo.toml | head -1
+      - echo ""
+      - echo "v-admin:"
+      - grep '^version' v-admin/Cargo.toml | head -1
+      - echo ""
+      - echo "v-auth-center:"
+      - grep '^version' v-auth-center/Cargo.toml | head -1
+      - echo ""
+      - echo "v (common library):"
+      - grep '^version' v/Cargo.toml | head -1

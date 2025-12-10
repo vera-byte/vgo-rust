@@ -145,16 +145,20 @@ for plugin in "${PLUGINS[@]}"; do
         fi
         
         # 从 Cargo.toml 获取实际的二进制名称 / Get actual binary name from Cargo.toml
+        # 使用 jq 正确解析当前插件的 target name
         BINARY_NAME=$(cargo metadata --manifest-path "$PLUGIN_DIR/Cargo.toml" --format-version 1 --no-deps 2>/dev/null | \
-                      grep -o '"name":"[^"]*"' | head -1 | cut -d'"' -f4)
+                      jq -r '.packages[] | select(.manifest_path | contains("'"$plugin"'")) | .targets[] | select(.kind[] == "bin") | .name' | head -1)
         
         if [ -z "$BINARY_NAME" ]; then
+            # 如果 jq 不可用或解析失败，使用插件目录名作为后备
             BINARY_NAME="$plugin"
         fi
         
+        info "二进制名称 / Binary name: $BINARY_NAME"
+        
         # 获取版本信息 / Get version info
         VERSION=$(cargo metadata --manifest-path "$PLUGIN_DIR/Cargo.toml" --format-version 1 --no-deps 2>/dev/null | \
-                  grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4)
+                  jq -r '.packages[] | select(.manifest_path | contains("'"$plugin"'")) | .version' | head -1)
         if [ -z "$VERSION" ]; then
             VERSION="0.0.0"
         fi
